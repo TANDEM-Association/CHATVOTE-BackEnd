@@ -15,6 +15,9 @@ WORKDIR /app
 # Install dependencies
 RUN poetry install --no-root
 
+# Install JupyterLab for in-container notebooks
+RUN poetry run pip install --no-cache-dir jupyterlab
+
 # Copy the rest of the application code and optional Firebase credentials
 # This will include files like:
 # - wahl-chat-dev-firebase-adminsdk.json

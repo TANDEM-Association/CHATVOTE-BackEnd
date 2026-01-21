@@ -1,0 +1,55 @@
+version: "3.8"
+
+services:
+  civ-api:
+    build:
+      context: .
+    image: wahl-chat-backend:latest
+    env_file:
+      - .env
+    restart: always
+    networks:
+      - traefik-public
+    labels:
+      - "traefik.enable=true"
+      - 'traefik.http.routers.civ-api.rule=Host(`${TRAEFIK_ROUTER_HOST}`)'
+      - "traefik.http.routers.civ-api.entrypoints=websecure"
+      - "traefik.http.routers.civ-api.tls=true"
+      - "traefik.http.routers.civ-api.tls.certresolver=letsencryptresolver"
+      - "traefik.http.services.civ-api.loadbalancer.server.port=8080"
+      - "traefik.docker.network=${TRAEFIK_PUBLIC_NETWORK}"
+    volumes:
+      - .:/app
+      - ./wahl-chat-dev-firebase-adminsdk.json:/app/wahl-chat-dev-firebase-adminsdk.json:ro
+    environment:
+      - FIREBASE_CREDENTIALS_PATH=/app/wahl-chat-dev-firebase-adminsdk.json
+
+  jupyter:
+    build:
+      context: .
+    image: wahl-chat-backend:latest
+    env_file:
+      - .env
+    environment:
+      - JUPYTER_PORT=${JUPYTER_PORT:-8888}
+      - JUPYTER_TOKEN=${JUPYTER_TOKEN:-}
+      - JUPYTER_PASSWORD_HASH=${JUPYTER_PASSWORD_HASH:-}
+    command: ["/app/scripts/start_jupyter.sh"]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.jupyter.rule=Host(`civ-jup.<CHANGEME.ORG>`)"
+      - "traefik.http.routers.jupyter.entrypoints=websecure"
+      - "traefik.http.routers.jupyter.tls=true"
+      - "traefik.http.routers.jupyter.tls.certresolver=letsencryptresolver"
+      - "traefik.http.services.jupyter.loadbalancer.server.port=${JUPYTER_PORT:-8888}"
+      - "traefik.docker.network=${TRAEFIK_PUBLIC_NETWORK}"
+    networks:
+      - traefik-public
+    volumes:
+      - .:/app
+    restart: unless-stopped
+
+networks:
+  traefik-public:
+    name: ${TRAEFIK_PUBLIC_NETWORK}
+    external: true
