@@ -2,7 +2,7 @@
 
 import logging
 import os
-from typing import AsyncIterator
+from typing import AsyncIterator, Optional
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
 from langchain_core.messages.base import BaseMessage, BaseMessageChunk
@@ -23,27 +23,81 @@ CAPACITY_GPT_4O_MINI_OPENAI_TIER_5 = 4054
 CAPACITY_GPT_4O_MINI_AZURE = 108
 
 
-azure_gpt_4o = AzureChatOpenAI(
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-    deployment_name="gpt-4o-2024-08-06",
-    openai_api_version=os.getenv("OPENAI_API_VERSION"),
-    api_key=safe_load_api_key("AZURE_OPENAI_API_KEY"),
-    max_retries=0,
+def _build_azure_chat_model(
+    deployment_name: str, temperature: Optional[float] = None
+) -> Optional[AzureChatOpenAI]:
+    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+    api_version = os.getenv("OPENAI_API_VERSION")
+    api_key = safe_load_api_key("AZURE_OPENAI_API_KEY")
+    if not endpoint or not api_version or not api_key:
+        logger.info(
+            "Skipping Azure deployment '%s' because Azure env vars are not fully configured.",
+            deployment_name,
+        )
+        return None
+    kwargs = {
+        "azure_endpoint": endpoint,
+        "deployment_name": deployment_name,
+        "openai_api_version": api_version,
+        "api_key": api_key,
+        "max_retries": 0,
+    }
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+    return AzureChatOpenAI(**kwargs)
+
+
+def _build_google_gemini_model(
+    temperature: Optional[float] = None,
+) -> Optional[ChatGoogleGenerativeAI]:
+    api_key = safe_load_api_key("GOOGLE_API_KEY")
+    if not api_key:
+        logger.info("Skipping Google Gemini because GOOGLE_API_KEY is not configured.")
+        return None
+    kwargs = {
+        "model": "gemini-2.0-flash",
+        "api_key": api_key,
+        "max_retries": 0,
+    }
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+    return ChatGoogleGenerativeAI(**kwargs)
+
+
+def _build_llm(
+    *,
+    name: str,
+    model,
+    sizes: list[LLMSize],
+    priority: int,
+    user_capacity_per_minute: int,
+    premium_only: bool = False,
+) -> Optional[LLM]:
+    if model is None:
+        return None
+    return LLM(
+        name=name,
+        model=model,
+        sizes=sizes,
+        priority=priority,
+        user_capacity_per_minute=user_capacity_per_minute,
+        is_at_rate_limit=False,
+        premium_only=premium_only,
+    )
+
+
+def _filter_available_llms(llms: list[Optional[LLM]]) -> list[LLM]:
+    return [llm for llm in llms if llm is not None]
+
+
+azure_gpt_4o = _build_azure_chat_model("gpt-4o-2024-08-06")
+azure_gpt_4o_mini = _build_azure_chat_model("gpt-4o-mini-2024-07-18")
+azure_gpt_4o_mini_det = _build_azure_chat_model(
+    "gpt-4o-mini-2024-07-18", temperature=0.0
 )
 
-azure_gpt_4o_mini = AzureChatOpenAI(
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-    deployment_name="gpt-4o-mini-2024-07-18",
-    openai_api_version=os.getenv("OPENAI_API_VERSION"),
-    api_key=safe_load_api_key("AZURE_OPENAI_API_KEY"),
-    max_retries=0,
-)
-
-google_gemini_2_flash = ChatGoogleGenerativeAI(
-    model="gemini-2.0-flash",
-    api_key=safe_load_api_key("GOOGLE_API_KEY"),
-    max_retries=0,
-)
+google_gemini_2_flash = _build_google_gemini_model()
+google_gemini_2_flash_det = _build_google_gemini_model(temperature=0.0)
 
 openai_gpt_4o = ChatOpenAI(
     model="gpt-4o-2024-08-06",
@@ -57,68 +111,6 @@ openai_gpt_4o_mini = ChatOpenAI(
     max_retries=0,
 )
 
-NON_DETERMINISTIC_LLMS: list[LLM] = [
-    LLM(
-        name="google-gemini-2.0-flash",
-        model=google_gemini_2_flash,
-        sizes=[LLMSize.SMALL, LLMSize.LARGE],
-        priority=100,
-        user_capacity_per_minute=CAPACITY_GEMINI_2_FLASH,
-        is_at_rate_limit=False,
-    ),
-    LLM(
-        name="azure-gpt-4o",
-        model=azure_gpt_4o,
-        sizes=[LLMSize.LARGE],
-        priority=90,
-        user_capacity_per_minute=CAPACITY_GPT_4O_AZURE,
-        is_at_rate_limit=False,
-        premium_only=True,
-    ),
-    LLM(
-        name="openai-gpt-4o",
-        model=openai_gpt_4o,
-        sizes=[LLMSize.LARGE],
-        priority=98,
-        user_capacity_per_minute=CAPACITY_GPT_4O_OPENAI_TIER_5,
-        is_at_rate_limit=False,
-        premium_only=False,
-    ),
-    LLM(
-        name="azure-gpt-4o-mini",
-        model=azure_gpt_4o_mini,
-        sizes=[LLMSize.SMALL],
-        priority=50,
-        user_capacity_per_minute=CAPACITY_GPT_4O_MINI_AZURE,
-        is_at_rate_limit=False,
-    ),
-    LLM(
-        name="openai-gpt-4o-mini",
-        model=openai_gpt_4o_mini,
-        sizes=[LLMSize.SMALL],
-        priority=40,
-        user_capacity_per_minute=CAPACITY_GPT_4O_MINI_OPENAI_TIER_5,
-        is_at_rate_limit=False,
-    ),
-]
-
-azure_gpt_4o_mini_det = AzureChatOpenAI(
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-    deployment_name="gpt-4o-mini-2024-07-18",
-    openai_api_version=os.getenv("OPENAI_API_VERSION"),
-    api_key=safe_load_api_key("AZURE_OPENAI_API_KEY"),
-    temperature=0.0,
-    max_retries=0,
-)
-
-google_gemini_2_flash_det = ChatGoogleGenerativeAI(
-    model="gemini-2.0-flash",
-    api_key=safe_load_api_key("GOOGLE_API_KEY"),
-    temperature=0.0,
-    max_retries=0,
-)
-
-
 openai_gpt_4o_mini_det = ChatOpenAI(
     model="gpt-4o-mini",
     api_key=safe_load_api_key("OPENAI_API_KEY"),
@@ -126,32 +118,72 @@ openai_gpt_4o_mini_det = ChatOpenAI(
     max_retries=0,
 )
 
-DETERMINISTIC_LLMS: list[LLM] = [
-    LLM(
-        name="google-gemini-2.0-flash-det",
-        model=google_gemini_2_flash_det,
-        sizes=[LLMSize.SMALL, LLMSize.LARGE],
-        priority=100,
-        user_capacity_per_minute=CAPACITY_GEMINI_2_FLASH,
-        is_at_rate_limit=False,
-    ),
-    LLM(
-        name="azure-gpt-4o-mini-det",
-        model=azure_gpt_4o_mini_det,
-        sizes=[LLMSize.SMALL],
-        priority=90,
-        user_capacity_per_minute=CAPACITY_GPT_4O_MINI_AZURE,
-        is_at_rate_limit=False,
-    ),
-    LLM(
-        name="openai-gpt-4o-mini-det",
-        model=openai_gpt_4o_mini_det,
-        sizes=[LLMSize.SMALL],
-        priority=80,
-        user_capacity_per_minute=CAPACITY_GPT_4O_MINI_OPENAI_TIER_5,
-        is_at_rate_limit=False,
-    ),
-]
+NON_DETERMINISTIC_LLMS: list[LLM] = _filter_available_llms(
+    [
+        _build_llm(
+            name="google-gemini-2.0-flash",
+            model=google_gemini_2_flash,
+            sizes=[LLMSize.SMALL, LLMSize.LARGE],
+            priority=100,
+            user_capacity_per_minute=CAPACITY_GEMINI_2_FLASH,
+        ),
+        _build_llm(
+            name="azure-gpt-4o",
+            model=azure_gpt_4o,
+            sizes=[LLMSize.LARGE],
+            priority=90,
+            user_capacity_per_minute=CAPACITY_GPT_4O_AZURE,
+            premium_only=True,
+        ),
+        _build_llm(
+            name="openai-gpt-4o",
+            model=openai_gpt_4o,
+            sizes=[LLMSize.LARGE],
+            priority=98,
+            user_capacity_per_minute=CAPACITY_GPT_4O_OPENAI_TIER_5,
+        ),
+        _build_llm(
+            name="azure-gpt-4o-mini",
+            model=azure_gpt_4o_mini,
+            sizes=[LLMSize.SMALL],
+            priority=50,
+            user_capacity_per_minute=CAPACITY_GPT_4O_MINI_AZURE,
+        ),
+        _build_llm(
+            name="openai-gpt-4o-mini",
+            model=openai_gpt_4o_mini,
+            sizes=[LLMSize.SMALL],
+            priority=40,
+            user_capacity_per_minute=CAPACITY_GPT_4O_MINI_OPENAI_TIER_5,
+        ),
+    ]
+)
+
+DETERMINISTIC_LLMS: list[LLM] = _filter_available_llms(
+    [
+        _build_llm(
+            name="google-gemini-2.0-flash-det",
+            model=google_gemini_2_flash_det,
+            sizes=[LLMSize.SMALL, LLMSize.LARGE],
+            priority=100,
+            user_capacity_per_minute=CAPACITY_GEMINI_2_FLASH,
+        ),
+        _build_llm(
+            name="azure-gpt-4o-mini-det",
+            model=azure_gpt_4o_mini_det,
+            sizes=[LLMSize.SMALL],
+            priority=90,
+            user_capacity_per_minute=CAPACITY_GPT_4O_MINI_AZURE,
+        ),
+        _build_llm(
+            name="openai-gpt-4o-mini-det",
+            model=openai_gpt_4o_mini_det,
+            sizes=[LLMSize.SMALL],
+            priority=80,
+            user_capacity_per_minute=CAPACITY_GPT_4O_MINI_OPENAI_TIER_5,
+        ),
+    ]
+)
 
 
 async def handle_rate_limit_hit_for_all_llms():
