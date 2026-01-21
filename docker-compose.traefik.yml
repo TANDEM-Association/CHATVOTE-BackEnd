@@ -12,7 +12,7 @@ services:
       - feedarium-traefik-public
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.civ-api.rule=Host(`civ-api.<CHANGEME.ORG>`)"
+      - "traefik.http.routers.civ-api.rule=Host(`civ-api.${TRAEFIK_DOMAIN}`)"
       - "traefik.http.routers.civ-api.entrypoints=websecure"
       - "traefik.http.routers.civ-api.tls=true"
       - "traefik.http.routers.civ-api.tls.certresolver=letsencryptresolver"

@@ -37,7 +37,7 @@ services:
     command: ["/app/scripts/start_jupyter.sh"]
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.jupyter.rule=Host(`civ-jup.<CHANGEME.ORG>`)"
+      - "traefik.http.routers.jupyter.rule=Host(`civ-jup.${TRAEFIK_DOMAIN}`)"
       - "traefik.http.routers.jupyter.entrypoints=websecure"
       - "traefik.http.routers.jupyter.tls=true"
       - "traefik.http.routers.jupyter.tls.certresolver=letsencryptresolver"
