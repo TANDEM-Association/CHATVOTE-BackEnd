@@ -2,6 +2,10 @@
 #
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
+wahl-chat-dev-firebase-adminsdk.json
+
+doc_agent_wip/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
