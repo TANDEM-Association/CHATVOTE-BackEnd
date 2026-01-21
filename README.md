@@ -24,9 +24,25 @@ This project is **source-available** under the **PolyForm Noncommercial 1.0.0** 
   b. Get access to assets required for a reference to wahl.chat on your project page
 - Do not use the wahl.chat name or logo in your project without our permission
 
+## 📚 Complete Documentation
+
+A complete documentation set is available in the `/doc` folder:
+
+- **[doc/INDEX.md](./doc/INDEX.md)** - Navigation index for the full documentation
+- **[doc/README.md](./doc/README.md)** - Project overview
+- **[doc/services.md](./doc/services.md)** - Detailed explanation of all services (LangChain, OpenAI, Pinecone, Perplexity, Azure, Google)
+- **[doc/initialisation.md](./doc/initialisation.md)** - Full installation and configuration guide
+- **[doc/architecture.md](./doc/architecture.md)** - Detailed technical architecture
+- **[doc/systeme-allemand.md](./doc/systeme-allemand.md)** - Specifics of the German political system
+- **[doc/adaptation-france.md](./doc/adaptation-france.md)** - Complete guide for adapting the system to France
+
+👉 **Start with [doc/INDEX.md](./doc/INDEX.md) to navigate the documentation**
+
 ## Localization
 This project was initially implemented for the German political system.
 To adapt it for use in other countries, you will need to adjust the prompts and data schemas to fit the target locale and political context.
+
+**📖 For adapting to France, see the complete guide:** [doc/adaptation-france.md](./doc/adaptation-france.md)
 
 
 
@@ -114,6 +130,18 @@ Add a file named `wahl-chat-dev-firebase-adminsdk.json` to the root directory of
      In this setup, `wahl-chat-*-firebase-adminsdk.json` file is **not** required in the image.
      Firebase Admin will use the mounted ADC credentials instead.
      Make sure to set the `GOOGLE_CLOUD_PROJECT` environment variable to the project ID of the Firebase project you want to use.
+
+### Jupyter in Docker
+1. Create a password hash (optional but recommended):  
+   `python -c "from jupyter_server.auth import passwd; print(passwd('my-password'))"`
+2. Add the values to `.env`:
+   ```
+   JUPYTER_PORT=8888
+   JUPYTER_TOKEN=        # leave empty if you rely on the password hash
+   JUPYTER_PASSWORD_HASH="sha1:..."
+   ```
+3. Start the Jupyter service: `docker compose up jupyter`
+4. Open `http://localhost:8888` (or the port you configured) and authenticate with the token or password.
 
 
 ## Test

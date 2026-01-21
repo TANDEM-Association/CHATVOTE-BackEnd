@@ -1,0 +1,146 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                                                                              ║
+║                    WAHL.CHAT BACKEND DOCUMENTATION                           ║
+║                         Complete Documentation                               ║
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+📁 LOCATION
+   /opt/whal/wahl-chat-backend/doc/
+
+📚 FILES CREATED (7 files, 2888 lines, 92 KB)
+
+   1. INDEX.md (255 lines)
+      → Complete navigation index
+      → Reading guide by use case
+      → Quick links to all documents
+
+   2. README.md (112 lines)
+      → Overview of the wahl.chat project
+      → High-level architecture
+      → Quick start
+      → Navigation to other docs
+
+   3. services.md (487 lines)
+      → LangChain: Orchestration framework
+      → OpenAI: GPT-4o, embeddings
+      → Pinecone: 3 detailed vector indexes
+      → Perplexity: Web search and analysis
+      → Azure OpenAI: EU fallback
+      → Google Gemini: Primary free model
+      → Multi-LLM strategy with fallback
+      → Cost comparison (~$50-100/month)
+
+   4. initialisation.md (546 lines)
+      → Poetry installation
+      → Configuration of all services
+      → Pinecone index creation (scripts provided)
+      → Firebase configuration
+      → Environment variables
+      → Data import
+      → Run (dev, prod, Docker)
+      → Tests and verification
+      → Full troubleshooting
+
+   5. architecture.md (438 lines)
+      → Global architecture diagram
+      → Components (aiohttp, WebSocket, chatbot)
+      → Processing flow of a question
+      → Multi-LLM management with fallback
+      → RAG system (Retrieval-Augmented Generation)
+      → Firebase/Firestore structure
+      → Docker deployment
+
+   6. systeme-allemand.md (426 lines)
+      → Bundestagswahl 2025
+      → 13 German political parties
+      → Bundestag votes (scraping)
+      → Parliamentary questions
+      → German prompts (all templates)
+      → German sources (bpb, ARD, ZDF, FAZ, SZ)
+      → Electoral system (Zweitstimme, Erststimme)
+      → Coalitions (Ampelkoalition)
+      → Adaptation checklist
+
+   7. adaptation-france.md (624 lines)
+      → French parties (LFI, PS, EELV, Renaissance, LR, RN...)
+      → National Assembly scraping
+      → Questions to government
+      → Full translation of prompts to French
+      → French sources (Vie Publique, INSEE, OFCE, CEVIPOF)
+      → French formats (dates, quotes, capitalization)
+      → French electoral system (two-round voting)
+      → Data collection scripts
+      → 6-phase migration checklist
+      → Name suggestions (vote.chat, election.chat...)
+
+═══════════════════════════════════════════════════════════════════════════════
+
+🎯 DETAILED CONTENT
+
+   ✓ Explanation of ALL external services
+     • LangChain, OpenAI, Pinecone, Perplexity, Azure, Google Gemini
+     • Configuration, API keys, limits, costs
+
+   ✓ COMPLETE installation guide
+     • Step by step with provided scripts
+     • Creation of the 3 Pinecone indexes
+     • Firebase configuration
+     • Data import
+
+   ✓ DETAILED technical architecture
+     • Diagrams and flows
+     • Code examples
+     • Multi-LLM strategy
+     • RAG system
+
+   ✓ Documentation of the GERMAN system
+     • All specific elements
+     • Parties, votes, parliamentary questions
+     • German prompts
+     • Sources and references
+
+   ✓ Adaptation guide for FRANCE
+     • Full Germany → France mapping
+     • Prompt translation
+     • Scraping scripts
+     • Migration checklist
+
+═══════════════════════════════════════════════════════════════════════════════
+
+🚀 GETTING STARTED
+
+   1. Read doc/INDEX.md
+      → Complete documentation navigation
+
+   2. Read doc/README.md
+      → Project overview
+
+   3. Follow doc/initialisation.md
+      → Step-by-step installation
+
+   4. To adapt for France:
+      → Read doc/systeme-allemand.md (understand the specifics)
+      → Follow doc/adaptation-france.md (migration guide)
+
+═══════════════════════════════════════════════════════════════════════════════
+
+📊 STATISTICS
+
+   • Total: 2888 lines of documentation
+   • Size: 92 KB
+   • 7 Markdown files
+   • Language: English
+   • Coverage: 100% of the project
+
+═══════════════════════════════════════════════════════════════════════════════
+
+📞 SUPPORT
+
+   • Email: info@wahl.chat
+   • GitHub: Open an issue
+   • Documentation: /doc
+
+═══════════════════════════════════════════════════════════════════════════════
+
+✅ COMPLETE DOCUMENTATION READY TO USE
