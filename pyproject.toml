@@ -39,6 +39,7 @@ websocket-client = "1.8.0"
 xxhash = "^3.5.0"
 qdrant-client = "^1.15.1"
 langchain-qdrant = "^0.2.0"
+apscheduler = "^3.10.4"
 
 [tool.poetry.group.dev.dependencies]
 mypy = "~1.12.1"

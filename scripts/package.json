@@ -4,7 +4,10 @@
   "private": true,
   "scripts": {
     "import:parties": "node import-firestore.js parties ../firebase/firestore_data/dev/parties.json",
-    "import:questions": "node import-firestore.js proposed_questions ../firebase/firestore_data/dev/proposed_questions.json"
+    "import:parties:clean": "node import-firestore.js parties ../firebase/firestore_data/dev/parties.json --clean",
+    "import:questions": "node import-firestore.js proposed_questions ../firebase/firestore_data/dev/proposed_questions.json",
+    "import:municipalities": "node import-firestore.js municipalities ../firebase/firestore_data/dev/municipalities.json",
+    "import:municipalities:clean": "node import-firestore.js municipalities ../firebase/firestore_data/dev/municipalities.json --clean"
   },
   "dependencies": {
     "firebase-admin": "^13.6.0"
