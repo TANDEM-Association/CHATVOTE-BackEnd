@@ -1,39 +1,36 @@
 <!--
-SPDX-FileCopyrightText: 2025 2025 wahl.chat
+SPDX-FileCopyrightText: 2025 chatvote
 
 SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 -->
 
-# wahl.chat backend
-Backend of the leading political information chatbot for the German federal elections 2025.
+# ChatVote Backend
+Backend du chatbot d'information politique pour les élections municipales françaises.
 
-## About wahl.chat
-#### Links
-Application URL: https://wahl.chat/ </br>
-About page: https://wahl.chat/about-us </br>
+## À propos de ChatVote
+#### Liens
+URL de l'application : https://chatvote.fr/ </br>
+Page À propos : https://chatvote.fr/about-us </br>
 
-#### Our goal in a nutshell
-The aim of wahl.chat is to enable users to engage in a contemporary way with the positions of political parties and to receive answers to individual questions that can be substantiated with sources.
+#### Notre objectif en bref
+L'objectif de ChatVote est de permettre aux citoyens de s'informer de manière moderne et interactive sur les positions des listes candidates aux élections municipales et d'obtenir des réponses sourcées à leurs questions.
 
-## License
-This project is **source-available** under the **PolyForm Noncommercial 1.0.0** license.
-- Free for **non-commercial** use (see LICENSE for permitted purposes)
-- Share the license text and any `Required Notice:` lines when distributing
-- Please contact us at info@wahl.chat to
-  a. Inform us about your use case
-  b. Get access to assets required for a reference to wahl.chat on your project page
-- Do not use the wahl.chat name or logo in your project without our permission
+## Licence
+Ce projet est **source-available** sous la licence **PolyForm Noncommercial 1.0.0**.
+- Gratuit pour un usage **non-commercial** (voir LICENSE pour les usages autorisés)
+- Partagez le texte de licence et les lignes `Required Notice:` lors de la distribution
+- Basé sur le projet open source wahl.chat (https://github.com/wahlchat) - Adaptation française
 
-## Localization
-This project was initially implemented for the German political system.
-To adapt it for use in other countries, you will need to adjust the prompts and data schemas to fit the target locale and political context.
+## Localisation
+Ce projet a été initialement implémenté pour le système politique allemand (élections fédérales).
+Il a été adapté pour le contexte des élections municipales françaises.
 
 
 
 ## Setup
 
-> **ℹ️ Need help?**
-> If you have any remaining setup questions, please contact us at [info@wahl.chat](mailto:info@wahl.chat).
+> **ℹ️ Besoin d'aide ?**
+> Si vous avez des questions, veuillez nous contacter.
 
 
 ### Install Requirements
@@ -51,10 +48,10 @@ Regarding the Langchain API key you have 3 Options (it is needed for langchain t
 
 ### Provide Firebase Admin SDK Credentials
 #### Option 1: Use gcloud application default credentials
-Run `gcloud auth application-default login` and authenticate with your Google Cloud account that has access to the Firebase `wahl-chat-dev` project. Make sure to set the project your Firebase `wahl-chat-dev` project in the gcloud CLI with `gcloud config set project wahl-chat-dev`.
+Run `gcloud auth application-default login` and authenticate with your Google Cloud account that has access to the Firebase `chatvote-dev` project. Make sure to set the project your Firebase `chatvote-dev` project in the gcloud CLI with `gcloud config set project chatvote-dev`.
 
 #### Option 2: Use a specific Firebase Admin SDK credentials file
-Add a file named `wahl-chat-dev-firebase-adminsdk.json` to the root directory of this repository. This file can be generated at [https://console.firebase.google.com/u/0/project/wahl-chat-dev/settings/serviceaccounts/adminsdk](https://console.firebase.google.com/u/0/project/wahl-chat-dev/settings/serviceaccounts/adminsdk)
+Add a file named `chatvote-dev-firebase-adminsdk.json` to the root directory of this repository. This file can be generated from your Firebase console.
 
 ## Run
 ### Locally
@@ -64,33 +61,33 @@ Add a file named `wahl-chat-dev-firebase-adminsdk.json` to the root directory of
 1. **Build the image**
 
    ```bash
-   docker build -t wahl-chat:latest .
+   docker build -t chatvote:latest .
    ```
 
 2. **Run using a Firebase Admin SDK service account file (dev/prod)**
 
    - **Prerequisites**:
      - `.env` in the project root (see `.env.example`)
-     - For **dev**: `wahl-chat-dev-firebase-adminsdk.json` in the project root **before** building the image
+     - For **dev**: `chatvote-dev-firebase-adminsdk.json` in the project root **before** building the image
        (download from the Firebase console as described above).
-     - For **prod**: `wahl-chat-firebase-adminsdk.json` in the project root **before** building the image.
+     - For **prod**: `chatvote-firebase-adminsdk.json` in the project root **before** building the image.
 
    - **Run (dev)**:
 
      ```bash
-     docker run --env-file .env -p 8080:8080 wahl-chat:latest
+     docker run --env-file .env -p 8080:8080 chatvote:latest
      ```
 
-     With `ENV=dev` in `.env`, the backend will use `wahl-chat-dev-firebase-adminsdk.json` inside the container if present;
+     With `ENV=dev` in `.env`, the backend will use `chatvote-dev-firebase-adminsdk.json` inside the container if present;
      otherwise it falls back to Application Default Credentials.
 
    - **Run (prod)**:
 
      ```bash
-     docker run --env-file .env -p 8080:8080 wahl-chat:latest
+     docker run --env-file .env -p 8080:8080 chatvote:latest
      ```
 
-     With `ENV=prod` in `.env`, the backend will use `wahl-chat-firebase-adminsdk.json` inside the container if present;
+     With `ENV=prod` in `.env`, the backend will use `chatvote-firebase-adminsdk.json` inside the container if present;
      otherwise it falls back to Application Default Credentials.
 
 3. **Run using Google Application Default Credentials (gcloud ADC)**
@@ -105,13 +102,13 @@ Add a file named `wahl-chat-dev-firebase-adminsdk.json` to the root directory of
      ADC=~/.config/gcloud/application_default_credentials.json && \
      docker run --env-file .env \
        -e GOOGLE_APPLICATION_CREDENTIALS=/tmp/keys/application_default_credentials.json \
-       -e GOOGLE_CLOUD_PROJECT=wahl-chat-dev \
+       -e GOOGLE_CLOUD_PROJECT=chatvote-dev \
        -v ${ADC}:/tmp/keys/application_default_credentials.json:ro \
        -p 8080:8080 \
-       wahl-chat:latest
+       chatvote:latest
      ```
 
-     In this setup, `wahl-chat-*-firebase-adminsdk.json` file is **not** required in the image.
+     In this setup, `chatvote-*-firebase-adminsdk.json` file is **not** required in the image.
      Firebase Admin will use the mounted ADC credentials instead.
      Make sure to set the `GOOGLE_CLOUD_PROJECT` environment variable to the project ID of the Firebase project you want to use.
 
@@ -142,20 +139,20 @@ Firebase CLI: `npm install -g firebase-tools` & `firebase login`
 
 ### Managing Data
 #### Importing party data from dev to prod
-1. Export the parties from the dev-database: `firestore-export --accountCredentials ../wahl-chat-dev-firebase-adminsdk.json --backupFile firestore_data/dev/parties.json --nodePath parties -p`
+1. Export the parties from the dev-database: `firestore-export --accountCredentials ../chatvote-dev-firebase-adminsdk.json --backupFile firestore_data/dev/parties.json --nodePath parties -p`
 2. Copy `firestore_data/dev/parties.json` to `firestore_data/prod/parties.json`
-3. IMPORTANT: Replace Firebase-Storage dev-URLs with prod-URLs (e.g. https://storage.googleapis.com/wahl-chat-dev.firebasestorage.app/public/bsw/Kurzwahlprogramm%20BTW25_2024-12-21.pdf --> https://storage.googleapis.com/wahl-chat.firebasestorage.app/public/bsw/Kurzwahlprogramm%20BTW25_2024-12-21.pdf): ctrl-f for `https://storage.googleapis.com/wahl-chat-dev.firebasestorage.app` and replace with `https://storage.googleapis.com/wahl-chat.firebasestorage.app`
-4. Import the parties to the prod-database: `firestore-import --accountCredentials ../wahl-chat-firebase-adminsdk.json --backupFile firestore_data/prod/parties.json --nodePath parties`
+3. IMPORTANT: Replace Firebase-Storage dev-URLs with prod-URLs: ctrl-f for `https://storage.googleapis.com/chatvote-dev.firebasestorage.app` and replace with `https://storage.googleapis.com/chatvote.firebasestorage.app`
+4. Import the parties to the prod-database: `firestore-import --accountCredentials ../chatvote-firebase-adminsdk.json --backupFile firestore_data/prod/parties.json --nodePath parties`
 
-#### Exporting Proposed Questions from one party to another
-1. Export from the party where the questions already exist `firestore-export --accountCredentials ../wahl-chat-dev-firebase-adminsdk.json --backupFile firestore_data/proposed_questions_afd_questions.json --nodePath proposed_questions/afd/questions -p`
-2. Import to the party where the questions should be added `firestore-import --accountCredentials ../wahl-chat-dev-firebase-adminsdk.json --backupFile firestore_data/proposed_questions_afd_questions.json --nodePath proposed_questions/bsw/questions`
+#### Exporting Proposed Questions from one list to another
+1. Export from the list where the questions already exist `firestore-export --accountCredentials ../chatvote-dev-firebase-adminsdk.json --backupFile firestore_data/proposed_questions_liste1_questions.json --nodePath proposed_questions/liste1/questions -p`
+2. Import to the list where the questions should be added `firestore-import --accountCredentials ../chatvote-dev-firebase-adminsdk.json --backupFile firestore_data/proposed_questions_liste1_questions.json --nodePath proposed_questions/liste2/questions`
 
 #### Modifying Proposed Questions
-1. Export the proposed_questions collection from dev: `firestore-export --accountCredentials ../wahl-chat-dev-firebase-adminsdk.json --backupFile firestore_data/proposed_questions.json --nodePath proposed_questions -p`
+1. Export the proposed_questions collection from dev: `firestore-export --accountCredentials ../chatvote-dev-firebase-adminsdk.json --backupFile firestore_data/proposed_questions.json --nodePath proposed_questions -p`
 2. Modify the `firestore_data/proposed_questions.json` file
-3. Import the proposed_questions collection to dev: `firestore-import --accountCredentials ../wahl-chat-dev-firebase-adminsdk.json --backupFile firestore_data/proposed_questions.json --nodePath proposed_questions`
+3. Import the proposed_questions collection to dev: `firestore-import --accountCredentials ../chatvote-dev-firebase-adminsdk.json --backupFile firestore_data/proposed_questions.json --nodePath proposed_questions`
 
 #### Moving Proposed Questions from dev to prod
-1. Export the proposed_questions collection from dev: `firestore-export --accountCredentials ../wahl-chat-dev-firebase-adminsdk.json --backupFile firestore_data/proposed_questions.json --nodePath proposed_questions -p`
-2. Import the proposed_questions collection to prod: `firestore-import --accountCredentials ../wahl-chat-firebase-adminsdk.json --backupFile firestore_data/proposed_questions.json --nodePath proposed_questions`
+1. Export the proposed_questions collection from dev: `firestore-export --accountCredentials ../chatvote-dev-firebase-adminsdk.json --backupFile firestore_data/proposed_questions.json --nodePath proposed_questions -p`
+2. Import the proposed_questions collection to prod: `firestore-import --accountCredentials ../chatvote-firebase-adminsdk.json --backupFile firestore_data/proposed_questions.json --nodePath proposed_questions`

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2025 2025 wahl.chat
+# SPDX-FileCopyrightText: 2025 chatvote
 #
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
@@ -17,8 +17,7 @@ RUN poetry install --no-root
 
 # Copy the rest of the application code and optional Firebase credentials
 # This will include files like:
-# - wahl-chat-dev-firebase-adminsdk.json
-# - wahl-chat-firebase-adminsdk.json
+# - chat-vote-dev-firebase-adminsdk-fbsvc-5357066618.json
 # if they are present in the project root.
 # If these files are absent, Google Application Default Credentials must be provided when running the container
 COPY . /app

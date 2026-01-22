@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2025 2025 wahl.chat
+# SPDX-FileCopyrightText: 2025 chatvote
 #
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
@@ -6,36 +6,30 @@ from pydantic import BaseModel, Field
 
 
 class Party(BaseModel):
-    party_id: str = Field(..., description="The key/id of the party")
-    name: str = Field(..., description="The name of the party")
-    long_name: str = Field(..., description="The long name of the party")
-    description: str = Field(..., description="The description of the party")
-    website_url: str = Field(..., description="The website URL of the party")
-    candidate: str = Field(..., description="The candidate of the party")
+    """Model representing a political party or list for municipal elections."""
+
+    party_id: str = Field(..., description="The unique identifier of the party/list")
+    name: str = Field(..., description="The short name of the party/list")
+    long_name: str = Field(..., description="The full name of the party/list")
+    description: str = Field(..., description="The description of the party/list")
+    website_url: str = Field(..., description="The website URL of the party/list")
+    candidate: str = Field(..., description="The lead candidate or head of list")
     election_manifesto_url: str = Field(
-        ..., description="The URL of the election manifesto of the party"
+        ..., description="The URL of the party/list election manifesto"
+    )
+    logo_url: str = Field(default="", description="The URL of the party/list logo")
+    candidate_image_url: str = Field(
+        default="", description="The URL of the candidate's photo"
+    )
+    background_color: str = Field(
+        default="#4A90D9",
+        description="The background color for the party/list (hex format)",
     )
     is_small_party: bool = Field(
-        description="Boolean True, if the party is a small party, otherwise False",
+        description="True if it's a small party/list, False otherwise",
         default=False,
     )
     is_already_in_parliament: bool = Field(
-        description="Boolean True, if the party is already in parliament, otherwise False",
-        default=True,
+        description="True if the party/list is already represented in the municipal council, False otherwise",
+        default=False,
     )
-
-
-WAHL_CHAT_PARTY = Party(
-    party_id="wahl-chat",
-    name="wahl.chat",
-    long_name="wahl.chat Assistent",
-    description=(
-        "Der wahl.chat Assistent kann allgemeine Fragen zur Bundestagswahl 2025, zum Wahlsystem und zur Anwendung wahl.chat beantworten. "
-        "Falls Parteien miteinander verglichen werden, ist er neutral und gibt einen quellenbasierten Überblick."
-    ),
-    website_url="https://wahl.chat",
-    candidate="Wahl Chat",
-    election_manifesto_url="https://wahl.chat/presse",
-    is_small_party=False,
-    is_already_in_parliament=False,
-)

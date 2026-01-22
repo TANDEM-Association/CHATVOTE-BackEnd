@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2025 2025 wahl.chat
+# SPDX-FileCopyrightText: 2025 chatvote
 #
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
@@ -48,9 +48,9 @@ env_suffix = f"_{ENV.value}" if ENV.value in ["prod", "dev"] else "_dev"
 ALL_PARTIES_COLLECTION = f"all_parties{env_suffix}"
 
 # Set region based on environment at module load time
-# For prod (project: wahl-chat), use US_EAST1; for dev (project: wahl-chat-dev), use EUROPE_WEST1
+# For prod (project: chatvote), use US_EAST1; for dev (project: chatvote-dev), use EUROPE_WEST1
 # Check both ENV variable and project ID to determine region
-_is_prod = _env_from_os == "prod" or _project_id == "wahl-chat"
+_is_prod = _env_from_os == "prod" or _project_id == "chatvote"
 STORAGE_TRIGGER_FN_REGION = (
     SupportedRegion.US_EAST1 if _is_prod else SupportedRegion.EUROPE_WEST1
 )
@@ -464,8 +464,8 @@ def on_party_document_upload(
         split.metadata["namespace"] = party_subdir  # Party subdirectory as namespace
 
         # Content enhancement for speeches
-        if "rede" in prefix:
-            split.page_content = f"Ausschnitt aus {prefix}\n\n{split.page_content}"
+        if "discours" in prefix:
+            split.page_content = f"Extrait de {prefix}\n\n{split.page_content}"
             split.metadata["content_type"] = "speech_excerpt"
         else:
             split.metadata["content_type"] = "document_excerpt"

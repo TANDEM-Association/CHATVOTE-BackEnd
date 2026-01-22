@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2025 2025 wahl.chat
+# SPDX-FileCopyrightText: 2025 chatvote
 #
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
@@ -240,7 +240,7 @@ class ChatResponseCompleteDto(BaseModel):
     status: Status = Field(..., description="The status of the event")
 
 
-class WahlChatSwiperUserMessageDto(BaseModel):
+class ChatVoteSwiperUserMessageDto(BaseModel):
     session_id: str = Field(
         ..., description="The ID of the chat session to which the message belongs"
     )
@@ -249,7 +249,7 @@ class WahlChatSwiperUserMessageDto(BaseModel):
     )
     current_political_question: str = Field(
         ...,
-        description="The current wahl.chat Swiper question which the user is answering",
+        description="The current ChatVote Swiper question which the user is answering",
     )
 
     @field_validator("session_id")
@@ -259,7 +259,7 @@ class WahlChatSwiperUserMessageDto(BaseModel):
         return value
 
 
-class WahlChatSwiperResponseCompleteDto(BaseModel):
+class ChatVoteSwiperResponseCompleteDto(BaseModel):
     session_id: Optional[str] = Field(
         ...,
         description="The ID of the chat session to which the message belongs if applicable",
@@ -285,7 +285,7 @@ class SummaryDto(BaseModel):
     status: Status = Field(..., description="The status of the event")
 
 
-class WahlChatSwiperAnswerRequestDto(BaseModel):
+class ChatVoteSwiperAnswerRequestDto(BaseModel):
     chat_history: List[Message] = Field(..., description="The chat history")
     current_title: str = Field(..., description="The current chat title")
     user_message: str = Field(
@@ -293,7 +293,7 @@ class WahlChatSwiperAnswerRequestDto(BaseModel):
     )
     current_political_question: str = Field(
         ...,
-        description="The current wahl.chat Swiper question which the user is answering",
+        description="The current ChatVote Swiper question which the user is answering",
     )
     chat_response_llm_size: LLMSize = Field(
         description="The size of the LLM model to use for chat response generation",
@@ -301,7 +301,7 @@ class WahlChatSwiperAnswerRequestDto(BaseModel):
     )
 
 
-class WahlChatSwiperAnswerDto(BaseModel):
+class ChatVoteSwiperAnswerDto(BaseModel):
     message: Message = Field(..., description="The message including sources")
     title: str = Field(..., description="The new title of the chat session")
     quick_replies: List[str] = Field(..., description="The quick replies for the user")

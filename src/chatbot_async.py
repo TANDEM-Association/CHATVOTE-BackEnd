@@ -2,7 +2,7 @@
 
 import logging
 import os
-from typing import AsyncIterator, List, Tuple, Dict
+from typing import AsyncIterator, List, Tuple, Dict, Union
 from datetime import datetime
 from openai import AsyncOpenAI  # for API format
 
@@ -23,7 +23,8 @@ from src.llms import (
     get_structured_output_from_llms,
     stream_answer_from_llms,
 )
-from src.models.party import WAHL_CHAT_PARTY, Party
+from src.models.party import Party
+from src.models.assistant import ASSISTANT_ID, CHATVOTE_ASSISTANT, Assistant
 from src.models.vote import Vote, VotingResultsByParty
 from src.utils import (
     build_document_string_for_context,
@@ -49,13 +50,13 @@ from src.prompts import (
     generate_chat_summary_user_prompt,
     generate_chat_title_and_quick_replies_system_prompt,
     generate_chat_title_and_quick_replies_user_prompt,
-    generate_wahl_chat_title_and_quick_replies_system_prompt_str,
+    generate_chatvote_title_and_quick_replies_system_prompt_str,
     party_comparison_system_prompt_template,
     generate_party_vote_behavior_summary_system_prompt,
     generate_party_vote_behavior_summary_user_prompt,
     system_prompt_improvement_rag_template_vote_behavior_summary,
     user_prompt_improvement_rag_template_vote_behavior_summary,
-    wahl_chat_response_system_prompt_template,
+    chatvote_response_system_prompt_template,
     reranking_system_prompt_template,
     reranking_user_prompt_template,
     swiper_assistant_system_prompt_template,
@@ -76,6 +77,9 @@ from src.models.structured_outputs import (
 load_env()
 
 logger = logging.getLogger(__name__)
+
+# Type for entities that can respond to questions (party or assistant)
+Responder = Union[Party, Assistant]
 
 
 chat_response_llms: list[LLM] = NON_DETERMINISTIC_LLMS
@@ -144,13 +148,15 @@ async def get_question_targets_and_type(
     all_available_parties: List[Party],
     currently_selected_parties: List[Party],
 ) -> Tuple[List[str], str, bool]:
-    if len(currently_selected_parties) == 0:
-        currently_selected_parties = [WAHL_CHAT_PARTY]
+    # If no party selected, it's a chat with the assistant
+    is_assistant_only_chat = len(currently_selected_parties) == 0
 
     user_message_for_target_selection = user_message
     if previous_chat_history == "":
-        previous_chat_history = f"Chat mit {', '.join([party.name for party in currently_selected_parties])} gestartet.\n"
-        if currently_selected_parties != [WAHL_CHAT_PARTY]:
+        if is_assistant_only_chat:
+            previous_chat_history = f"Chat avec {CHATVOTE_ASSISTANT.name} démarré.\n"
+        else:
+            previous_chat_history = f"Chat avec {', '.join([party.name for party in currently_selected_parties])} démarré.\n"
             user_message_for_target_selection = f"@{', '.join([party.name for party in currently_selected_parties])}: {user_message}"
 
     currently_selected_parties_str = ""
@@ -170,10 +176,10 @@ async def get_question_targets_and_type(
         party for party in additionally_available_parties if party.is_small_party
     ]
 
-    additional_party_list_str += "Große Parteien:\n"
+    additional_party_list_str += "Grandes listes:\n"
     for party in big_additional_parties:
         additional_party_list_str += build_party_str(party)
-    additional_party_list_str += "Kleinparteien:\n"
+    additional_party_list_str += "Petites listes:\n"
     for party in small_additional_parties:
         additional_party_list_str += build_party_str(party)
 
@@ -203,11 +209,9 @@ async def get_question_targets_and_type(
     party_id_list = list(set(party_id_list))
 
     if len(party_id_list) >= 2:
-        # Filter out "wahl-chat" party from the list of selected parties
+        # Filter out "chat-vote" party from the list of selected parties
         party_id_list = [
-            party_id
-            for party_id in party_id_list
-            if party_id != WAHL_CHAT_PARTY.party_id
+            party_id for party_id in party_id_list if party_id != ASSISTANT_ID
         ]
 
     # create a prompt for the question type model
@@ -215,7 +219,7 @@ async def get_question_targets_and_type(
         system_prompt = determine_question_type_system_prompt.format()
         user_prompt = determine_question_type_user_prompt.format(
             previous_chat_history=previous_chat_history,
-            user_message=f'Nutzer: "{user_message_for_target_selection}"',
+            user_message=f'Utilisateur: "{user_message_for_target_selection}"',
         )
 
         messages = [
@@ -243,12 +247,14 @@ async def get_question_targets_and_type(
 
 
 async def generate_improvement_rag_query(
-    party: Party, conversation_history: str, last_user_message: str
+    responder: Responder, conversation_history: str, last_user_message: str
 ) -> str:
-    if party.party_id == WAHL_CHAT_PARTY.party_id:
+    if responder.party_id == ASSISTANT_ID:
         system_prompt = system_prompt_improve_general_chat_rag_query_template.format()
     else:
-        system_prompt = system_prompt_improvement_template.format(party_name=party.name)
+        system_prompt = system_prompt_improvement_template.format(
+            party_name=responder.name
+        )
     user_prompt = user_prompt_improvement_template.format(
         conversation_history=conversation_history,
         last_user_message=last_user_message,
@@ -312,11 +318,13 @@ async def generate_pro_con_perspective(
 
 
 async def generate_chat_summary(chat_history: list[Message]) -> str:
-    # create a list of messages from the chat history, user messages as "Nutzer: " and assistant messages use the party_id as role
+    # create a list of messages from the chat history, user messages as "Utilisateur: " and assistant messages use the party_id as role
     conversation_history = []
     for message in chat_history:
         if message.role == "user":
-            conversation_history.append({"role": "Nutzer", "content": message.content})
+            conversation_history.append(
+                {"role": "Utilisateur", "content": message.content}
+            )
         else:
             conversation_history.append(
                 {"role": message.party_id or "", "content": message.content}
@@ -336,9 +344,7 @@ async def generate_chat_summary(chat_history: list[Message]) -> str:
         generate_chat_summary_llms, messages, ChatSummaryGenerator
     )
 
-    return getattr(
-        response, "chat_summary", "Hier sollte eigentlich eine Zusammenfassung stehen."
-    )
+    return getattr(response, "chat_summary", "Un résumé devrait apparaître ici.")
 
 
 def get_rag_context(relevant_docs: List[Document]) -> str:
@@ -348,7 +354,7 @@ def get_rag_context(relevant_docs: List[Document]) -> str:
         rag_context += context_obj
     if rag_context == "":
         rag_context = (
-            "Keine relevanten Informationen in der Dokumentensammlung gefunden."
+            "Aucune information pertinente trouvée dans la collection de documents."
         )
     return rag_context
 
@@ -363,7 +369,7 @@ def get_rag_comparison_context(
         for doc in relevant_docs[party.party_id]:
             context_obj = f"""- ID: {doc_num}
 - Dokumentname: {doc.metadata.get("document_name", "unbekannt")}
-- Partei: {party.name}
+- Liste: {party.name}
 - Veröffentlichungsdatum: {doc.metadata.get("document_publish_date", "unbekannt")}
 - Inhalt: "{doc.page_content}"
 
@@ -372,7 +378,7 @@ def get_rag_comparison_context(
             rag_context += context_obj
     if rag_context == "":
         rag_context = (
-            "Keine relevanten Informationen in der Dokumentensammlung gefunden."
+            "Aucune information pertinente trouvée dans la collection de documents."
         )
     return rag_context
 
@@ -400,7 +406,7 @@ async def get_improved_rag_query_voting_behavior(
 
 
 async def generate_streaming_chatbot_response(
-    party: Party,
+    responder: Responder,
     conversation_history: str,
     user_message: str,
     relevant_docs: List[Document],
@@ -412,30 +418,30 @@ async def generate_streaming_chatbot_response(
 
     now = datetime.now()
 
-    answer_guidelines = get_chat_answer_guidelines(party.name, is_comparing=False)
+    answer_guidelines = get_chat_answer_guidelines(responder.name, is_comparing=False)
 
-    if party.party_id == WAHL_CHAT_PARTY.party_id:
+    if responder.party_id == ASSISTANT_ID:
         all_parties_list = ""
         for party in all_parties:
             all_parties_list += f"### {party.long_name}\n"
-            all_parties_list += f"Abkürzung: {party.name}\n"
-            all_parties_list += f"Beschreibung: {party}\n"
-            all_parties_list += (
-                f"Spitzenkandidat*In für die Bundestagswahl 2025: {party.candidate}\n"
-            )
-        system_prompt = wahl_chat_response_system_prompt_template.format(
+            all_parties_list += f"Nom court: {party.name}\n"
+            all_parties_list += f"Description: {party}\n"
+            all_parties_list += f"Tête de liste: {party.candidate}\n"
+        system_prompt = chatvote_response_system_prompt_template.format(
             all_parties_list=all_parties_list,
             date=now.strftime("%Y-%m-%d"),
             time=now.strftime("%H:%M"),
             rag_context=rag_context,
         )
     else:
+        # It's a party (not the assistant)
+        assert isinstance(responder, Party)
         system_prompt = party_response_system_prompt_template.format(
-            party_name=party.name,
-            party_long_name=party.long_name,
-            party_description=party.description,
-            party_url=party.website_url,
-            party_candidate=party.candidate,
+            party_name=responder.name,
+            party_long_name=responder.long_name,
+            party_description=responder.description,
+            party_url=responder.website_url,
+            party_candidate=responder.candidate,
             date=now.strftime("%Y-%m-%d"),
             time=now.strftime("%H:%M"),
             rag_context=rag_context,
@@ -461,7 +467,6 @@ async def generate_streaming_chatbot_response(
 
 
 async def generate_streaming_chatbot_comparing_response(
-    party: Party,
     conversation_history: str,
     user_message: str,
     relevant_docs: Dict[str, List[Document]],
@@ -469,20 +474,26 @@ async def generate_streaming_chatbot_comparing_response(
     chat_response_llm_size: LLMSize,
     use_premium_llms: bool = False,
 ) -> AsyncIterator[BaseMessageChunk]:
+    """Generate a comparison response between multiple parties.
+
+    The ChatVote assistant always responds to comparison questions.
+    """
     rag_context = get_rag_comparison_context(relevant_docs, relevant_parties)
 
     now = datetime.now()
 
-    answer_guidelines = get_chat_answer_guidelines(party.name, is_comparing=True)
+    answer_guidelines = get_chat_answer_guidelines(
+        CHATVOTE_ASSISTANT.name, is_comparing=True
+    )
 
     parties_being_compared = [party.name for party in relevant_parties]
 
     system_prompt = party_comparison_system_prompt_template.format(
-        party_name=party.name,
-        party_long_name=party.long_name,
-        party_description=party.description,
-        party_url=party.website_url,
-        party_candidate=party.candidate,
+        party_name=CHATVOTE_ASSISTANT.name,
+        party_long_name=CHATVOTE_ASSISTANT.long_name,
+        party_description=CHATVOTE_ASSISTANT.description,
+        party_url=CHATVOTE_ASSISTANT.website_url,
+        party_candidate=CHATVOTE_ASSISTANT.name,  # Assistant has no candidate
         date=now.strftime("%Y-%m-%d"),
         time=now.strftime("%H:%M"),
         rag_context=rag_context,
@@ -512,21 +523,21 @@ async def generate_chat_title_and_chick_replies(
     chat_history_str: str,
     chat_title: str,
     parties_in_chat: List[Party],
-    wahl_chat_assistant_last_responded: bool = False,
+    chatvote_assistant_last_responded: bool = False,
     is_comparing: bool = False,
 ) -> GroupChatTitleQuickReplyGenerator:
-    # filter wahl-chat party out of the list of parties
+    # filter chat-vote party out of the list of parties
     parties_in_chat = [
-        party for party in parties_in_chat if party.party_id != WAHL_CHAT_PARTY.party_id
+        party for party in parties_in_chat if party.party_id != ASSISTANT_ID
     ]
     party_list = ""
     for party in parties_in_chat:
         party_list += f"- {party.name} ({party.long_name}): {party.description}\n"
     if party_list == "":
-        party_list = "Noch keine Parteien in diesem Chat."
-    if wahl_chat_assistant_last_responded:
+        party_list = "Aucune liste n'est encore dans ce chat."
+    if chatvote_assistant_last_responded:
         system_prompt = (
-            generate_wahl_chat_title_and_quick_replies_system_prompt_str.format(
+            generate_chatvote_title_and_quick_replies_system_prompt_str.format(
                 party_list=party_list,
                 quick_reply_guidelines=get_quick_reply_guidelines(
                     is_comparing=is_comparing
@@ -570,7 +581,7 @@ async def generate_party_vote_behavior_summary(
     # sort votes by date (oldest first)
     votes.sort(key=lambda x: x.date)
     for vote in votes:
-        submitting_parties: str = "keine angegeben"
+        submitting_parties: str = "non spécifié"
         if vote.submitting_parties is not None:
             submitting_parties = ", ".join(vote.submitting_parties)
 
@@ -595,7 +606,7 @@ async def generate_party_vote_behavior_summary(
         )
 
     if votes_list == "":
-        votes_list = "Keine passenden Abstimmungen gefunden."
+        votes_list = "Aucun vote correspondant trouvé."
 
     system_prompt = generate_party_vote_behavior_summary_system_prompt.format(
         party_name=party.name,
@@ -629,24 +640,24 @@ def _format_vote_summary(
     party_name: str,
 ) -> str:
     return f"""
-# Abstimmung {vote.id}
-- Datum: {vote.date}
-- Thema: {vote.title}
-- Zusammenfassung: {description}
-- Einbringende Parteien: {submitting_parties}
-- Ergebnisse:
-    - Insgesamt:
-        - Ja: {vote.voting_results.overall.yes}
-        - Nein: {vote.voting_results.overall.no}
-        - Enthaltungen: {vote.voting_results.overall.abstain}
-        - Nicht abgestimmt: {vote.voting_results.overall.not_voted}
-        - Gesamtzahl der Mitglieder: {vote.voting_results.overall.members}
-    - Abstimmungsverhalten der Partei {party_name}:
-        - Ja: {party_result.yes}
-        - Nein: {party_result.no}
-        - Enthaltungen: {party_result.abstain}
-        - Nicht abgestimmt: {party_result.not_voted}
-        - Begründung: {party_result.justification if party_result.justification else "Keine Begründung angegeben."}\n\n
+# Vote {vote.id}
+- Date: {vote.date}
+- Sujet: {vote.title}
+- Résumé: {description}
+- Listes à l'origine: {submitting_parties}
+- Résultats:
+    - Global:
+        - Pour: {vote.voting_results.overall.yes}
+        - Contre: {vote.voting_results.overall.no}
+        - Abstentions: {vote.voting_results.overall.abstain}
+        - N'a pas voté: {vote.voting_results.overall.not_voted}
+        - Nombre total de membres: {vote.voting_results.overall.members}
+    - Comportement de vote de la liste {party_name}:
+        - Pour: {party_result.yes}
+        - Contre: {party_result.no}
+        - Abstentions: {party_result.abstain}
+        - N'a pas voté: {party_result.not_voted}
+        - Justification: {party_result.justification if party_result.justification else "Aucune justification fournie."}\n\n
 """
 
 
