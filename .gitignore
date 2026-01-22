@@ -139,6 +139,9 @@ chatvote-firebase-adminsdk*.json
 chat-vote-*-firebase-adminsdk*.json
 *firebase-adminsdk*.json
 
+# Generated data files (too large for git)
+firebase/firestore_data/dev/municipalities.json
+
 # Spyder project settings
 .spyderproject
 .spyproject

@@ -70,25 +70,35 @@ admin.initializeApp({
 
 const db = admin.firestore();
 
-async function deleteCollection(collectionRef) {
-  const snapshot = await collectionRef.get();
+const BATCH_SIZE = 400; // Firestore limit is 500, use 400 to be safe
 
-  if (snapshot.empty) {
-    console.log('  📭 Collection is empty, nothing to delete');
-    return 0;
+async function deleteCollection(collectionRef) {
+  let totalDeleted = 0;
+  let batchNum = 0;
+
+  while (true) {
+    // Get documents in batches of BATCH_SIZE
+    const snapshot = await collectionRef.limit(BATCH_SIZE).get();
+
+    if (snapshot.empty) {
+      if (batchNum === 0) {
+        console.log('  📭 Collection is empty, nothing to delete');
+      }
+      break;
+    }
+
+    const batch = db.batch();
+    snapshot.docs.forEach((doc) => {
+      batch.delete(doc.ref);
+    });
+
+    await batch.commit();
+    totalDeleted += snapshot.docs.length;
+    batchNum++;
+    console.log(`  🗑️  Deleted batch ${batchNum} (${snapshot.docs.length} docs) - Total: ${totalDeleted}`);
   }
 
-  const batch = db.batch();
-  let count = 0;
-
-  snapshot.docs.forEach((doc) => {
-    batch.delete(doc.ref);
-    console.log(`  🗑️  Deleting ${doc.id}`);
-    count++;
-  });
-
-  await batch.commit();
-  return count;
+  return totalDeleted;
 }
 
 async function importData() {
@@ -102,26 +112,32 @@ async function importData() {
     console.log(`  Deleted ${deletedCount} documents\n`);
   }
 
-  console.log(`📤 Importing to collection "${collectionName}"...`);
+  const entries = Object.entries(data).filter(([docId]) => !docId.startsWith('_'));
+  const totalDocs = entries.length;
+  const totalBatches = Math.ceil(totalDocs / BATCH_SIZE);
 
-  const batch = db.batch();
-  let count = 0;
+  console.log(`📤 Importing ${totalDocs} documents to collection "${collectionName}" in ${totalBatches} batches...`);
 
-  for (const [docId, docData] of Object.entries(data)) {
-    // Skip template/readme entries
-    if (docId.startsWith('_')) {
-      console.log(`  ⏭️  Skipping ${docId}`);
-      continue;
+  let totalCount = 0;
+
+  for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+    const batch = db.batch();
+    const start = batchIndex * BATCH_SIZE;
+    const end = Math.min(start + BATCH_SIZE, totalDocs);
+    const batchEntries = entries.slice(start, end);
+
+    for (const [docId, docData] of batchEntries) {
+      const docRef = db.collection(collectionName).doc(docId);
+      batch.set(docRef, docData, { merge: false });
+      totalCount++;
     }
 
-    const docRef = db.collection(collectionName).doc(docId);
-    batch.set(docRef, docData, { merge: false }); // Replace entirely, don't merge
-    console.log(`  ✅ ${docId}`);
-    count++;
+    await batch.commit();
+    const progress = ((batchIndex + 1) / totalBatches * 100).toFixed(1);
+    console.log(`  📦 Batch ${batchIndex + 1}/${totalBatches} committed (${batchEntries.length} docs) - ${progress}%`);
   }
 
-  await batch.commit();
-  console.log(`\n🎉 Successfully imported ${count} documents to "${collectionName}"`);
+  console.log(`\n🎉 Successfully imported ${totalCount} documents to "${collectionName}"`);
 }
 
 importData()
