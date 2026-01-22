@@ -57,11 +57,13 @@ from src.models.dtos import (
     Vote,
     VotingBehaviorSummaryChunkDto,
     VotingBehaviorVoteDto,
-    WahlChatSwiperResponseCompleteDto,
-    WahlChatSwiperUserMessageDto,
+    ChatVoteSwiperResponseCompleteDto,
+    ChatVoteSwiperUserMessageDto,
 )
 
-from src.models.party import WAHL_CHAT_PARTY, Party
+from src.models.party import Party
+from src.models.assistant import ASSISTANT_ID, CHATVOTE_ASSISTANT
+from src.chatbot_async import Responder
 from src.vector_store_helper import (
     identify_relevant_votes,
     identify_relevant_docs_with_llm_based_reranking,
@@ -112,7 +114,7 @@ async def disconnect(sid: str, reason: str):
 
 @sio.on("home")
 async def home(sid: str, body: dict):
-    await sio.emit("home_response", {"message": "Welcome to the wahl.chat API"}, to=sid)
+    await sio.emit("home_response", {"message": "Bienvenue sur l'API ChatVote"}, to=sid)
 
 
 @sio.on("chat_session_init")
@@ -192,7 +194,7 @@ async def chat_summary_request(sid: str, body: dict):
             f"Error generating chat summary for session {request_summary}: {e}"
         )
         response_dto = SummaryDto(
-            chat_summary="Hier sollte eigentlich eine Zusammenfassung stehen...",
+            chat_summary="Un résumé devrait apparaître ici...",
             status=Status(indicator=StatusIndicator.ERROR, message=str(e)),
         )
         await sio.emit("chat_summary_complete", response_dto.model_dump(), to=sid)
@@ -267,18 +269,19 @@ async def get_pro_con_perspective(sid: str, body: dict):
         return
 
 
-async def emit_cached_party_response(
+async def emit_cached_response(
     sid: str,
-    party: Party,
+    responder: Responder,
     group_chat_session: GroupChatSession,
     cached_response: CachedResponse,
 ):
+    """Emit a cached response for a party or the assistant."""
     # Sleep for a short time to simulate processing time
     await asyncio.sleep(1)
     sources_dto = SourcesDto(
         session_id=group_chat_session.session_id,
         sources=cached_response.sources,
-        party_id=party.party_id,
+        party_id=responder.party_id,
         rag_query=cached_response.rag_query,
     )
     await sio.emit("sources_ready", sources_dto.model_dump(), to=sid)
@@ -290,7 +293,7 @@ async def emit_cached_party_response(
         chunk = full_response[i : i + MAX_RESPONSE_CHUNK_LENGTH]
         chat_response_dto = PartyResponseChunkDto(
             session_id=group_chat_session.session_id,
-            party_id=party.party_id,
+            party_id=responder.party_id,
             chunk_index=chunk_index,
             chunk_content=chunk,
             is_end=False,
@@ -303,7 +306,7 @@ async def emit_cached_party_response(
     # Emit a finalizing chunk
     chat_response_dto = PartyResponseChunkDto(
         session_id=group_chat_session.session_id,
-        party_id=party.party_id,
+        party_id=responder.party_id,
         chunk_index=chunk_index,
         chunk_content="",
         is_end=True,
@@ -313,34 +316,34 @@ async def emit_cached_party_response(
         role="assistant",
         content=full_response,
         sources=cached_response.sources,
-        party_id=party.party_id,
+        party_id=responder.party_id,
         current_chat_title=group_chat_session.title,
         quick_replies=[],
         rag_query=cached_response.rag_query,
     )
     group_chat_session.chat_history.append(chatbot_message)
 
-    # Emit party response complete event
-    party_response_complete_dto = PartyResponseCompleteDto(
+    # Emit response complete event
+    response_complete_dto = PartyResponseCompleteDto(
         session_id=group_chat_session.session_id,
-        party_id=party.party_id,
+        party_id=responder.party_id,
         complete_message=full_response,
         status=Status(indicator=StatusIndicator.SUCCESS, message="Success"),
     )
-    logger.debug(f"Party response complete: {party_response_complete_dto}")
+    logger.debug(f"Response complete: {response_complete_dto}")
     await sio.emit(
-        "party_response_complete", party_response_complete_dto.model_dump(), to=sid
+        "party_response_complete", response_complete_dto.model_dump(), to=sid
     )
     logger.info(
-        f"Party response {party_response_complete_dto.model_dump()} for {party.party_id} emitted to client {sid}"
+        f"Response {response_complete_dto.model_dump()} for {responder.party_id} emitted to client {sid}"
     )
 
 
-async def fetch_and_emit_party_response(
+async def fetch_and_emit_response(
     sid: str,
-    party: Party,
+    responder: Responder,
     conversation_history_str: str,
-    question_for_party: str,
+    question: str,
     group_chat_session: GroupChatSession,
     all_available_parties: List[Party],
     use_premium_llms: bool,
@@ -354,6 +357,7 @@ async def fetch_and_emit_party_response(
     # for comparing scenario we need to pass List because all queries were computed in advance
     improved_rag_query_list: List[str] = [],
 ):
+    """Generate and emit the response for a party or the assistant."""
     # We’ll store single-party docs and multi-party docs separately:
     relevant_docs_list: Optional[List[Document]] = None
     relevant_docs_dict: Optional[Dict[str, List[Document]]] = None
@@ -370,21 +374,21 @@ async def fetch_and_emit_party_response(
     try:
         # Handle proposed question => possibility of picking a cached response
         logger.debug(
-            f"Fetching party response for party {party.party_id}: is_proposed_question={is_proposed_question}, is_cacheable_chat={is_cacheable_chat}"
+            f"Fetching response for {responder.party_id}: is_proposed_question={is_proposed_question}, is_cacheable_chat={is_cacheable_chat}"
         )
         if is_proposed_question or is_cacheable_chat:
             if is_proposed_question:
-                cache_key = question_for_party
+                cache_key = question
             else:
                 cache_key = get_chat_history_hash_key(cache_conversation_history_str)
             logger.debug(
-                f"Checking cache for party {party.party_id} with cache key {cache_key}"
+                f"Checking cache for {responder.party_id} with cache key {cache_key}"
             )
             existing_cached_answers: List[
                 CachedResponse
-            ] = await aget_cached_answers_for_party(party.party_id, cache_key)
+            ] = await aget_cached_answers_for_party(responder.party_id, cache_key)
             logger.info(
-                f"Fetched {len(existing_cached_answers)} cached answers for party {party.party_id} and cache_key {cache_key}"
+                f"Fetched {len(existing_cached_answers)} cached answers for {responder.party_id} and cache_key {cache_key}"
             )
 
             cached_answer_limit = 1 if is_proposed_question else 1
@@ -402,29 +406,29 @@ async def fetch_and_emit_party_response(
 
         if cached_answer_to_emit is not None:
             logger.info(
-                f"Selected cached answer for party {party.party_id} and question {question_for_party}: {cached_answer_to_emit}"
+                f"Selected cached answer for {responder.party_id} and question {question}: {cached_answer_to_emit}"
             )
-            await emit_cached_party_response(
+            await emit_cached_response(
                 sid,
-                party,
+                responder,
                 group_chat_session,
                 cached_answer_to_emit,
             )
             return
 
-        # If not is_comparing_question, we do a single-party RAG
+        # If not is_comparing_question, we do a single RAG
         if not is_comparing_question:
             improved_rag_query = await generate_improvement_rag_query(
-                party, conversation_history_str, question_for_party
+                responder, conversation_history_str, question
             )
             logger.debug(f"Improved RAG query: {improved_rag_query}")
 
             # Identify relevant docs as a list
             relevant_docs_list = await identify_relevant_docs_with_llm_based_reranking(
-                party=party,
+                responder=responder,
                 rag_query=improved_rag_query,
                 chat_history=conversation_history_str,
-                user_message=question_for_party,
+                user_message=question,
             )
             # comparing scenario requires improved_rag_query to be a list, so match for both scenarios
             improved_rag_query_list = [improved_rag_query]
@@ -452,7 +456,7 @@ async def fetch_and_emit_party_response(
 
             sources_dto = SourcesDto(
                 session_id=group_chat_session.session_id,
-                party_id=party.party_id,
+                party_id=responder.party_id,
                 rag_query=improved_rag_query_list,
                 sources=sources,
             )
@@ -494,7 +498,7 @@ async def fetch_and_emit_party_response(
 
             sources_dto = SourcesDto(
                 session_id=group_chat_session.session_id,
-                party_id=party.party_id,
+                party_id=responder.party_id,
                 rag_query=improved_rag_query_list,
                 sources=sources,
             )
@@ -503,9 +507,9 @@ async def fetch_and_emit_party_response(
         # Now generate the answer stream
         if not is_comparing_question:
             chunk_stream = await generate_streaming_chatbot_response(
-                party,
+                responder,
                 conversation_history_str,  # list of Messages
-                question_for_party,
+                question,
                 relevant_docs_list or [],  # pass an empty list if None
                 all_parties=all_available_parties,
                 chat_response_llm_size=group_chat_session.chat_response_llm_size,
@@ -513,9 +517,8 @@ async def fetch_and_emit_party_response(
             )
         else:
             chunk_stream = await generate_streaming_chatbot_comparing_response(
-                party,
                 conversation_history_str,  # list of Messages
-                question_for_party,
+                question,
                 relevant_docs_dict or {},  # pass empty dict if None
                 parties_being_compared or [],
                 chat_response_llm_size=group_chat_session.chat_response_llm_size,
@@ -536,7 +539,7 @@ async def fetch_and_emit_party_response(
                 chunk_content = message_chunk.content[i : i + MAX_RESPONSE_CHUNK_LENGTH]
                 chat_response_dto = PartyResponseChunkDto(
                     session_id=group_chat_session.session_id,
-                    party_id=party.party_id,
+                    party_id=responder.party_id,
                     chunk_index=chunk_index,
                     chunk_content=chunk_content,
                     is_end=False,
@@ -549,14 +552,14 @@ async def fetch_and_emit_party_response(
         # Emit a finalizing chunk
         chat_response_dto = PartyResponseChunkDto(
             session_id=group_chat_session.session_id,
-            party_id=party.party_id,
+            party_id=responder.party_id,
             chunk_index=chunk_index,
             chunk_content="",
             is_end=True,
         )
         logger.debug(
             f"Emitting final chat response chunk {chat_response_dto} with index {chunk_index} "
-            f"for party {party.party_id} to client {sid}"
+            f"for {responder.party_id} to client {sid}"
         )
         await sio.emit(
             "party_response_chunk_ready", chat_response_dto.model_dump(), to=sid
@@ -579,32 +582,32 @@ async def fetch_and_emit_party_response(
             role="assistant",
             content=full_content,
             sources=sources,  # from the branch above
-            party_id=party.party_id,
+            party_id=responder.party_id,
             current_chat_title=group_chat_session.title,
             quick_replies=[],
             rag_query=improved_rag_query_list,
         )
         group_chat_session.chat_history.append(chatbot_message)
 
-        # Emit party response complete event
-        party_response_complete_dto = PartyResponseCompleteDto(
+        # Emit response complete event
+        response_complete_dto = PartyResponseCompleteDto(
             session_id=group_chat_session.session_id,
-            party_id=party.party_id,
+            party_id=responder.party_id,
             complete_message=full_content,
             status=Status(indicator=StatusIndicator.SUCCESS, message="Success"),
         )
-        logger.debug(f"Party response complete: {party_response_complete_dto}")
+        logger.debug(f"Response complete: {response_complete_dto}")
         await sio.emit(
-            "party_response_complete", party_response_complete_dto.model_dump(), to=sid
+            "party_response_complete", response_complete_dto.model_dump(), to=sid
         )
         logger.info(
-            f"Party response {party_response_complete_dto.model_dump()} for {party.party_id} emitted to client {sid}"
+            f"Response {response_complete_dto.model_dump()} for {responder.party_id} emitted to client {sid}"
         )
 
         # If it was a proposed question and we generated something new, cache it
         if cache_key is not None and cached_answer_to_emit is None:
             logger.info(
-                f"Writing generated response to cache for party {party.party_id} and cache key {cache_key}"
+                f"Writing generated response to cache for {responder.party_id} and cache key {cache_key}"
             )
             cached_answer = CachedResponse(
                 content=full_content,
@@ -618,18 +621,18 @@ async def fetch_and_emit_party_response(
                 ),
             )
             await awrite_cached_answer_for_party(
-                party.party_id, cache_key, cached_answer
+                responder.party_id, cache_key, cached_answer
             )
             logger.debug(f"Written cached answer: {cached_answer}")
     except openai.BadRequestError as e:
         logger.error(
-            f"Error fetching and emitting party response for {party.party_id}: {e}",
+            f"Error fetching and emitting response for {responder.party_id}: {e}",
             exc_info=True,
         )
-        party_response_complete_dto = PartyResponseCompleteDto(
+        response_complete_dto = PartyResponseCompleteDto(
             session_id=group_chat_session.session_id,
-            party_id=party.party_id,
-            complete_message="Diese Frage kann ich leider nicht beantworten.",
+            party_id=responder.party_id,
+            complete_message="Je ne peux malheureusement pas répondre à cette question.",
             status=Status(
                 indicator=StatusIndicator.ERROR,
                 message=str(e),
@@ -637,17 +640,17 @@ async def fetch_and_emit_party_response(
         )
     except Exception as e:
         logger.error(
-            f"Error fetching and emitting party response for {party.party_id}: {e}",
+            f"Error fetching and emitting response for {responder.party_id}: {e}",
             exc_info=True,
         )
-        party_response_complete_dto = PartyResponseCompleteDto(
+        response_complete_dto = PartyResponseCompleteDto(
             session_id=group_chat_session.session_id,
-            party_id=party.party_id,
-            complete_message="Es tut mir Leid, leider ist ein Fehler aufgetreten. Bitte versuche es später erneut.",
+            party_id=responder.party_id,
+            complete_message="Désolé, une erreur s'est produite. Veuillez réessayer plus tard.",
             status=Status(indicator=StatusIndicator.ERROR, message=str(e)),
         )
         await sio.emit(
-            "party_response_complete", party_response_complete_dto.model_dump(), to=sid
+            "party_response_complete", response_complete_dto.model_dump(), to=sid
         )
         return
 
@@ -669,7 +672,7 @@ async def process_party(
     )
 
     relevant_docs = await identify_relevant_docs_with_llm_based_reranking(
-        party=party,
+        responder=party,
         rag_query=improved_rag_query,
         chat_history=chat_history_str,
         user_message=general_question,
@@ -782,7 +785,7 @@ async def chat_answer_request(sid: str, body: dict):
         ) = await get_question_targets_and_type(
             user_message=user_message.content,
             previous_chat_history=chat_history_str,
-            all_available_parties=all_parties + [WAHL_CHAT_PARTY],
+            all_available_parties=all_parties,
             currently_selected_parties=pre_selected_parties,
         )
     except openai.BadRequestError as e:
@@ -792,7 +795,7 @@ async def chat_answer_request(sid: str, body: dict):
         )
         responding_parties_dto = RespondingPartiesDto(
             session_id=chat_message_data.session_id,
-            party_ids=[WAHL_CHAT_PARTY.party_id],
+            party_ids=[ASSISTANT_ID],
         )
         logger.debug(
             f"Emitting responding parties {responding_parties_dto.party_ids} to client {sid}"
@@ -804,8 +807,8 @@ async def chat_answer_request(sid: str, body: dict):
         )
         party_response_complete_dto = PartyResponseCompleteDto(
             session_id=chat_session.session_id,
-            party_id=WAHL_CHAT_PARTY.party_id,
-            complete_message="Diese Frage kann ich leider nicht beantworten.",
+            party_id=ASSISTANT_ID,
+            complete_message="Je ne peux malheureusement pas répondre à cette question.",
             status=Status(indicator=StatusIndicator.SUCCESS, message="Success"),
         )
         await sio.emit(
@@ -830,21 +833,21 @@ async def chat_answer_request(sid: str, body: dict):
     )
 
     if not party_id_list:
-        logger.debug(f"No party IDs selected, defaulting to wahl-chat for client {sid}")
-        party_id_list = ["wahl-chat"]
+        logger.debug(f"No party IDs selected, defaulting to chat-vote for client {sid}")
+        party_id_list = ["chat-vote"]
     elif is_beginning_of_chat and len(party_id_list) > 7:
         # If we are in the beginning of the chat, we only allow up to 7 party IDs for automatic selection
-        # If more, we default to wahl-chat which will ask the user to select parties
+        # If more, we default to chat-vote which will ask the user to select parties
         logger.debug(
-            f"Too many party IDs selected at the beginning of the chat, defaulting to wahl-chat for client {sid}"
+            f"Too many party IDs selected at the beginning of the chat, defaulting to chat-vote for client {sid}"
         )
-        party_id_list = ["wahl-chat"]
+        party_id_list = ["chat-vote"]
 
-    parties_to_respond = [
-        party
-        for party in all_parties + [WAHL_CHAT_PARTY]
-        if party.party_id in party_id_list
+    # Separate parties and assistant
+    parties_to_respond: List[Party] = [
+        party for party in all_parties if party.party_id in party_id_list
     ]
+    assistant_should_respond = ASSISTANT_ID in party_id_list or is_comparing_question
     if not is_comparing_question:
         responding_parties_dto = RespondingPartiesDto(
             session_id=chat_message_data.session_id,
@@ -853,7 +856,7 @@ async def chat_answer_request(sid: str, body: dict):
     else:
         responding_parties_dto = RespondingPartiesDto(
             session_id=chat_message_data.session_id,
-            party_ids=["wahl-chat"],
+            party_ids=["chat-vote"],
         )
     logger.debug(
         f"Emitting responding parties {responding_parties_dto.party_ids} to client {sid}"
@@ -864,27 +867,35 @@ async def chat_answer_request(sid: str, body: dict):
         to=sid,
     )
 
-    if len(parties_to_respond) == 1 or not is_comparing_question:
-        party_coros = []
-        for party in parties_to_respond:
-            # get the proposed questions for the party
-            proposed_questions_for_party = await aget_proposed_questions_for_party(
-                party.party_id
+    responder_coros = []
+
+    if not is_comparing_question:
+        # Individual responses (parties and/or assistant)
+        # Construire la liste des responders
+        responders: List[Responder] = list(parties_to_respond)
+        if assistant_should_respond and not parties_to_respond:
+            # Only the assistant responds
+            responders = [CHATVOTE_ASSISTANT]
+
+        for responder in responders:
+            # get the proposed questions
+            proposed_questions_for_responder = await aget_proposed_questions_for_party(
+                responder.party_id
             )
             proposed_questions_group = await aget_proposed_questions_for_party("group")
 
             is_proposed_question = (
-                user_message.content in proposed_questions_for_party
+                user_message.content in proposed_questions_for_responder
                 or user_message.content in proposed_questions_group
             )
             logger.debug(f"Is proposed question: {is_proposed_question}")
             if is_beginning_of_chat and not is_proposed_question:
                 # chat sessions with custom initial questions are not cacheable
                 chat_session.is_cacheable = False
-            party_coros.append(
-                fetch_and_emit_party_response(
+            responder_coros.append(
+                fetch_and_emit_response(
                     sid,
-                    party,
+                    responder,
                     chat_history_str,
                     general_question,
                     chat_session,
@@ -895,7 +906,7 @@ async def chat_answer_request(sid: str, body: dict):
                 )
             )
     else:
-        # chat sessions with comparison answers are not cacheable for now
+        # Comparison question: the assistant responds
         chat_session.is_cacheable = False
 
         parties_being_compared = parties_to_respond
@@ -935,14 +946,12 @@ async def chat_answer_request(sid: str, body: dict):
             )
             return
 
-        party_coros = []
-        # for party in parties_to_respond:
-        logger.info("Comparison response is being fetched by WAHL_CHAT_PARTY")
+        logger.info("Comparison response is being fetched by ChatVote Assistant")
 
-        party_coros.append(
-            fetch_and_emit_party_response(
+        responder_coros.append(
+            fetch_and_emit_response(
                 sid,
-                WAHL_CHAT_PARTY,
+                CHATVOTE_ASSISTANT,
                 chat_history_str,
                 user_message.content,
                 chat_session,
@@ -959,7 +968,7 @@ async def chat_answer_request(sid: str, body: dict):
     # wait for all coroutines to finish with a timeout
     try:
         await asyncio.wait_for(
-            asyncio.gather(*party_coros),
+            asyncio.gather(*responder_coros),
             timeout=40,
         )
     except asyncio.TimeoutError as e:
@@ -991,8 +1000,7 @@ async def chat_answer_request(sid: str, body: dict):
             chat_history_str=full_conversation_history_str,
             chat_title=chat_session.title or "Noch kein Titel vergeben",
             parties_in_chat=parties_in_chat,
-            wahl_chat_assistant_last_responded=party_id_list
-            == [WAHL_CHAT_PARTY.party_id],
+            chatvote_assistant_last_responded=party_id_list == [ASSISTANT_ID],
             is_comparing=is_comparing_question,
         )
     except openai.BadRequestError as e:
@@ -1140,7 +1148,7 @@ async def get_voting_behavior(sid: str, body: dict):
         logger.error(f"Error processing voting behavior request: {e}", exc_info=True)
         error_response = VotingBehaviorDto(
             request_id=body.get("request_id"),
-            message="Hierzu kann ich leider keine Informationen bereitstellen.",
+            message="Je ne peux malheureusement pas fournir d'informations à ce sujet.",
             status=Status(indicator=StatusIndicator.ERROR, message=str(e)),
             votes=[],
             rag_query=improved_rag_query,
@@ -1149,7 +1157,7 @@ async def get_voting_behavior(sid: str, body: dict):
         logger.error(f"Error processing voting behavior request: {e}", exc_info=True)
         error_response = VotingBehaviorDto(
             request_id=body.get("request_id"),
-            message="Es tut mir Leid, es ist ein Fehler aufgetreten. Bitte versuche es später erneut.",
+            message="Désolé, une erreur s'est produite. Veuillez réessayer plus tard.",
             status=Status(indicator=StatusIndicator.ERROR, message=str(e)),
             votes=[],
             rag_query=improved_rag_query,
@@ -1209,13 +1217,13 @@ async def mock_websocket_usage(sid: str, body: dict):
 @sio.on("swiper_assistant_session_init")
 async def init_swiper_assistant_session(sid: str, body: dict):
     logger.debug(
-        f"Client {sid} requested wahl-chat-swiper session initialization with body: {body}"
+        f"Client {sid} requested chatvote-swiper session initialization with body: {body}"
     )
     try:
         init_chat_session_dto = InitChatSessionDto(**body)
     except ValidationError as e:
         logger.error(
-            f"Error validating wahl-chat-swiper session initialization request for client {sid}: {e}"
+            f"Error validating chatvote-swiper session initialization request for client {sid}: {e}"
         )
         chat_session_initialized_dto = ChatSessionInitializedDto(
             session_id=None,
@@ -1228,7 +1236,7 @@ async def init_swiper_assistant_session(sid: str, body: dict):
         )
         return
 
-    logger.debug(f"Creating wahl-chat-swiper session: {init_chat_session_dto}")
+    logger.debug(f"Creating chatvote-swiper session: {init_chat_session_dto}")
 
     chat_session = GroupChatSession(
         session_id=init_chat_session_dto.session_id,
@@ -1258,19 +1266,19 @@ async def init_swiper_assistant_session(sid: str, body: dict):
 
 @sio.on("swiper_assistant_answer_request")
 async def swiper_assistant_answer_request(sid: str, body: dict):
-    logger.debug(f"Client {sid} requested wahl-chat-swiper answer with body: {body}")
+    logger.debug(f"Client {sid} requested chatvote-swiper answer with body: {body}")
 
     try:
-        chat_message_data = WahlChatSwiperUserMessageDto(**body)
+        chat_message_data = ChatVoteSwiperUserMessageDto(**body)
     except ValidationError as e:
         logger.error(
-            f"Error validating wahl-chat-swiper message data for client {sid}: {e}"
+            f"Error validating chatvote-swiper message data for client {sid}: {e}"
         )
-        chat_response_complete_dto = WahlChatSwiperResponseCompleteDto(
+        chat_response_complete_dto = ChatVoteSwiperResponseCompleteDto(
             session_id=None,
             complete_message=Message(
                 role=Role.ASSISTANT,
-                content="Es tut mir Leid, leider ist ein Fehler aufgetreten. Bitte versuche es später erneut.",
+                content="Désolé, une erreur s'est produite. Veuillez réessayer plus tard.",
                 sources=[],
             ),
             status=Status(
@@ -1285,7 +1293,7 @@ async def swiper_assistant_answer_request(sid: str, body: dict):
         )
         return
 
-    logger.debug(f"wahl.chat Swiper message data: {chat_message_data}")
+    logger.debug(f"ChatVote Swiper message data: {chat_message_data}")
 
     # Extract user message
     user_message = Message(
@@ -1310,14 +1318,14 @@ async def swiper_assistant_answer_request(sid: str, body: dict):
                 chat_history.append(user_message)
     except Exception as e:
         logger.error(
-            f"Error accessing wahl-chat-swiper session for client {sid}: {e}",
+            f"Error accessing chatvote-swiper session for client {sid}: {e}",
             exc_info=True,
         )
-        chat_response_complete_dto = WahlChatSwiperResponseCompleteDto(
+        chat_response_complete_dto = ChatVoteSwiperResponseCompleteDto(
             session_id=chat_message_data.session_id,
             complete_message=Message(
                 role=Role.ASSISTANT,
-                content="Es tut mir Leid, leider ist ein Fehler aufgetreten. Bitte versuche es später erneut.",
+                content="Désolé, une erreur s'est produite. Veuillez réessayer plus tard.",
                 sources=[],
             ),
             status=Status(
@@ -1346,7 +1354,7 @@ async def swiper_assistant_answer_request(sid: str, body: dict):
 
     chat_session.chat_history.append(swiper_assistant_response)
 
-    chat_response_complete_dto = WahlChatSwiperResponseCompleteDto(
+    chat_response_complete_dto = ChatVoteSwiperResponseCompleteDto(
         session_id=chat_message_data.session_id,
         complete_message=swiper_assistant_response,
         status=Status(indicator=StatusIndicator.SUCCESS, message="Success"),

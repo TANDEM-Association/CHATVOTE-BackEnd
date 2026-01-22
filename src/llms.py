@@ -5,6 +5,7 @@ import os
 from typing import AsyncIterator
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
+from langchain_anthropic import ChatAnthropic
 from langchain_core.messages.base import BaseMessage, BaseMessageChunk
 from pydantic import BaseModel
 from src.firebase_service import awrite_llm_status
@@ -21,6 +22,8 @@ CAPACITY_GPT_4O_OPENAI_TIER_5 = 3759
 CAPACITY_GPT_4O_AZURE = 112
 CAPACITY_GPT_4O_MINI_OPENAI_TIER_5 = 4054
 CAPACITY_GPT_4O_MINI_AZURE = 108
+CAPACITY_CLAUDE_SONNET = 50
+CAPACITY_CLAUDE_HAIKU = 100
 
 
 azure_gpt_4o = AzureChatOpenAI(
@@ -57,7 +60,30 @@ openai_gpt_4o_mini = ChatOpenAI(
     max_retries=0,
 )
 
-NON_DETERMINISTIC_LLMS: list[LLM] = [
+# Anthropic Claude models (conditionally initialized)
+_anthropic_api_key = safe_load_api_key("ANTHROPIC_API_KEY")
+
+anthropic_claude_sonnet = (
+    ChatAnthropic(
+        model="claude-sonnet-4-20250514",
+        api_key=_anthropic_api_key,
+        max_retries=0,
+    )
+    if _anthropic_api_key
+    else None
+)
+
+anthropic_claude_haiku = (
+    ChatAnthropic(
+        model="claude-3-5-haiku-20241022",
+        api_key=_anthropic_api_key,
+        max_retries=0,
+    )
+    if _anthropic_api_key
+    else None
+)
+
+_base_non_deterministic_llms: list[LLM] = [
     LLM(
         name="google-gemini-2.0-flash",
         model=google_gemini_2_flash,
@@ -102,6 +128,33 @@ NON_DETERMINISTIC_LLMS: list[LLM] = [
     ),
 ]
 
+# Add Anthropic Claude models if API key is available
+if anthropic_claude_sonnet is not None:
+    _base_non_deterministic_llms.append(
+        LLM(
+            name="anthropic-claude-sonnet",
+            model=anthropic_claude_sonnet,
+            sizes=[LLMSize.LARGE],
+            priority=95,
+            user_capacity_per_minute=CAPACITY_CLAUDE_SONNET,
+            is_at_rate_limit=False,
+        )
+    )
+
+if anthropic_claude_haiku is not None:
+    _base_non_deterministic_llms.append(
+        LLM(
+            name="anthropic-claude-haiku",
+            model=anthropic_claude_haiku,
+            sizes=[LLMSize.SMALL],
+            priority=45,
+            user_capacity_per_minute=CAPACITY_CLAUDE_HAIKU,
+            is_at_rate_limit=False,
+        )
+    )
+
+NON_DETERMINISTIC_LLMS: list[LLM] = _base_non_deterministic_llms
+
 azure_gpt_4o_mini_det = AzureChatOpenAI(
     azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
     deployment_name="gpt-4o-mini-2024-07-18",
@@ -126,7 +179,30 @@ openai_gpt_4o_mini_det = ChatOpenAI(
     max_retries=0,
 )
 
-DETERMINISTIC_LLMS: list[LLM] = [
+# Anthropic Claude deterministic models (conditionally initialized)
+anthropic_claude_sonnet_det = (
+    ChatAnthropic(
+        model="claude-sonnet-4-20250514",
+        api_key=_anthropic_api_key,
+        temperature=0.0,
+        max_retries=0,
+    )
+    if _anthropic_api_key
+    else None
+)
+
+anthropic_claude_haiku_det = (
+    ChatAnthropic(
+        model="claude-3-5-haiku-20241022",
+        api_key=_anthropic_api_key,
+        temperature=0.0,
+        max_retries=0,
+    )
+    if _anthropic_api_key
+    else None
+)
+
+_base_deterministic_llms: list[LLM] = [
     LLM(
         name="google-gemini-2.0-flash-det",
         model=google_gemini_2_flash_det,
@@ -152,6 +228,33 @@ DETERMINISTIC_LLMS: list[LLM] = [
         is_at_rate_limit=False,
     ),
 ]
+
+# Add Anthropic Claude deterministic models if API key is available
+if anthropic_claude_sonnet_det is not None:
+    _base_deterministic_llms.append(
+        LLM(
+            name="anthropic-claude-sonnet-det",
+            model=anthropic_claude_sonnet_det,
+            sizes=[LLMSize.LARGE],
+            priority=95,
+            user_capacity_per_minute=CAPACITY_CLAUDE_SONNET,
+            is_at_rate_limit=False,
+        )
+    )
+
+if anthropic_claude_haiku_det is not None:
+    _base_deterministic_llms.append(
+        LLM(
+            name="anthropic-claude-haiku-det",
+            model=anthropic_claude_haiku_det,
+            sizes=[LLMSize.SMALL],
+            priority=85,
+            user_capacity_per_minute=CAPACITY_CLAUDE_HAIKU,
+            is_at_rate_limit=False,
+        )
+    )
+
+DETERMINISTIC_LLMS: list[LLM] = _base_deterministic_llms
 
 
 async def handle_rate_limit_hit_for_all_llms():

@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: 2025 chatvote
+#
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
+# Development Dockerfile with hot-reload support
+
+FROM python:3.11.3-slim
+
+# Install Poetry
+RUN pip install poetry
+
+# Copy only the necessary files for Poetry (to leverage Docker layer caching)
+COPY pyproject.toml poetry.lock /app/
+
+WORKDIR /app
+
+# Configure poetry to not create virtual env (use system python)
+RUN poetry config virtualenvs.create false
+
+# Install dependencies
+RUN poetry install --no-root
+
+# Install watchfiles for hot-reload
+RUN pip install watchfiles
+
+# Copy the rest of the application code
+COPY . /app
+
+# Use watchfiles to auto-reload on code changes
+CMD ["watchfiles", "--filter", "python", "python -m src.aiohttp_app --host 0.0.0.0 --port 8080", "./src"]

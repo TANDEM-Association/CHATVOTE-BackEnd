@@ -1,0 +1,12 @@
+{
+  "name": "chatvote-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "import:parties": "node import-firestore.js parties ../firebase/firestore_data/dev/parties.json",
+    "import:questions": "node import-firestore.js proposed_questions ../firebase/firestore_data/dev/proposed_questions.json"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.6.0"
+  }
+}

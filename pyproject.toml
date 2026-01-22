@@ -1,18 +1,18 @@
-# SPDX-FileCopyrightText: 2025 2025 wahl.chat
+# SPDX-FileCopyrightText: 2025 2025 chatvote
 #
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
 [tool.poetry]
-name = "wahl-chat-backend"
+name = "chat-vote-backend"
 version = "1.0.0"
-description = "The wahl.chat backend implements a political information chatbot that enables users to engage in a contemporary way with the positions of political parties and to receive answers to individual questions that can be substantiated with sources."
-authors = ["wahl.chat <info@wahl.chat>"]
+description = "The chatvote backend implements a political information chatbot that enables users to engage in a contemporary way with the positions of political parties and to receive answers to individual questions that can be substantiated with sources."
+authors = ["chatvote <info@chatvote>"]
 license = "PolyForm-Noncommercial-1.0.0"
 readme = "README.md"
 packages = [
     {include = "src"}
 ]
-repository = "https://github.com/llm-psychology-group/wahl-chat-backend"
+repository = "https://github.com/llm-psychology-group/chat-vote-backend"
 
 [tool.poetry.dependencies]
 python = ">=3.11 <=3.12"
@@ -25,6 +25,7 @@ langchain-community = "~0.3.7"
 langchain-core = "~0.3.19"
 langchain-google-genai = "^2.0.8"
 langchain-openai = "~0.2.9"
+langchain-anthropic = "~0.3.0"
 langchain-text-splitters = "~0.3.2"
 openai = "~1.59.8"
 pydantic = "~2.10.0"

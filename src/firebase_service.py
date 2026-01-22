@@ -13,9 +13,9 @@ from src.utils import load_env
 load_env()
 
 credentials_path = (
-    "wahl-chat-firebase-adminsdk.json"
+    "chat-vote-firebase-adminsdk.json"
     if os.getenv("ENV") == "prod"
-    else "wahl-chat-dev-firebase-adminsdk.json"
+    else "chat-vote-dev-firebase-adminsdk-fbsvc-5357066618.json"
 )
 
 # If the credentials file does not exist, use the application default credentials

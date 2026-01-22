@@ -1,11 +1,11 @@
-# Technical Stack — wahl.chat Backend (CHATVOTE-BackEnd)
+# Technical Stack — chatvote Backend (CHATVOTE-BackEnd)
 
 > This document is a **code-derived** snapshot of the technical stack and architecture of this repository.
 > It is intentionally explicit about what is **confirmed by the code/config**, and what is **inferred**.
 
 ## 1) Executive summary
 
-This repository implements the **wahl.chat backend**, a political information chatbot for the German federal election context.
+This repository implements the **chatvote backend**, a political information chatbot for the French municipal election context.
 It exposes:
 
 - A **REST/HTTP API** (aiohttp)
@@ -98,8 +98,8 @@ Events include (non-exhaustive, code-derived):
   - Code: `src/firebase_service.py`
 - Credentials strategy:
   - Uses service account JSON files if present in repo root:
-    - `wahl-chat-dev-firebase-adminsdk.json` (dev)
-    - `wahl-chat-firebase-adminsdk.json` (prod)
+    - `chatvote-dev-firebase-adminsdk.json` (dev)
+    - `chatvote-firebase-adminsdk.json` (prod)
   - Otherwise falls back to **Google Application Default Credentials (ADC)**.
 
 ---
@@ -259,7 +259,7 @@ From `.env.example`:
 
 | Variable                | Purpose                                                                                                                   |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `API_NAME`              | Guard/indicator used by `load_env()` to ensure correct env is loaded (`wahl-chat-api`).                                   |
+| `API_NAME`              | Guard/indicator used by `load_env()` to ensure correct env is loaded (`chatvote-api`).                                   |
 | `ENV`                   | Environment switch (`dev`/`prod`), affects CORS and Firebase credentials file selection, and Qdrant collection suffixing. |
 | `LANGCHAIN_TRACING_V2`  | Enable/disable LangSmith tracing.                                                                                         |
 | `LANGCHAIN_ENDPOINT`    | LangSmith endpoint.                                                                                                       |
@@ -312,7 +312,7 @@ From `.env.example`:
 - **CORS policy**:
 
   - `dev` allows `*`
-  - non-dev allows explicit origins including `https://wahl.chat`, `https://embed.wahl.chat`, and localhost (`src/utils.py`).
+  - non-dev allows explicit origins including `https://chatvote.fr`, `https://embed.chatvote.fr`, and localhost (`src/utils.py`).
 
 - **Caching**:
 

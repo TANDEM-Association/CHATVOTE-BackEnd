@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2025 2025 wahl.chat
+# SPDX-FileCopyrightText: 2025 chatvote
 #
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
@@ -35,7 +35,7 @@ load_env()
 
 BASE_URL = "http://localhost:8080"
 # BASE_URL = (
-#     "https://wahl-chat-api-dev.redisland-8be84878.westeurope.azurecontainerapps.io"
+#     "https://chatvote-api-dev.example.com"
 # )
 
 

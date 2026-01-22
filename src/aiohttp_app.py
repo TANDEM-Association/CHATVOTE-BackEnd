@@ -15,14 +15,15 @@ from src.chatbot_async import (
     get_improved_rag_query_voting_behavior,
 )
 from src.firebase_service import aget_party_by_id
+from src.models.assistant import CHATVOTE_ASSISTANT
 from src.models.chat import Message, Role
 from src.models.dtos import (
     ParliamentaryQuestionDto,
     ParliamentaryQuestionRequestDto,
     Status,
     StatusIndicator,
-    WahlChatSwiperAnswerDto,
-    WahlChatSwiperAnswerRequestDto,
+    ChatVoteSwiperAnswerDto,
+    ChatVoteSwiperAnswerRequestDto,
 )
 from src.models.vote import Vote
 from src.vector_store_helper import identify_relevant_parliamentary_questions
@@ -57,6 +58,16 @@ async def api_key_middleware(request, handler):
 async def health_check(request):
     """Kubernetes health check endpoint."""
     return web.json_response({"status": "ok"})
+
+
+@routes.get(f"{route_prefix}/assistant")
+async def get_assistant_info(request):
+    """Get ChatVote assistant information.
+
+    This returns the assistant's metadata (name, description, logo, etc.)
+    without needing to store it in Firestore.
+    """
+    return web.json_response(CHATVOTE_ASSISTANT.model_dump())
 
 
 @routes.post(f"{route_prefix}/get-parliamentary-question")
@@ -106,9 +117,9 @@ async def get_parliamentary_question(body: ParliamentaryQuestionRequestDto):
     return web.json_response(parliamentary_question_dto.model_dump())
 
 
-@routes.post(f"{route_prefix}/answer-wahl-chat-swiper-question")
+@routes.post(f"{route_prefix}/answer-chatvote-swiper-question")
 @inject_params
-async def answer_wahl_chat_swiper_question(body: WahlChatSwiperAnswerRequestDto):
+async def answer_chatvote_swiper_question(body: ChatVoteSwiperAnswerRequestDto):
     logger.debug(f"Received request: {body}")
 
     user_message = Message(
@@ -117,7 +128,7 @@ async def answer_wahl_chat_swiper_question(body: WahlChatSwiperAnswerRequestDto)
     )
 
     chat_history_str = build_chat_history_string(
-        body.chat_history, [], default_assistant_name="wahl.chat Swiper Assistent"
+        body.chat_history, [], default_assistant_name="ChatVote Swiper Assistant"
     )
 
     swiper_assistant_response = await generate_swiper_assistant_response(
@@ -132,20 +143,20 @@ async def answer_wahl_chat_swiper_question(body: WahlChatSwiperAnswerRequestDto)
     chat_history.append(swiper_assistant_response)
 
     chat_history_str = build_chat_history_string(
-        chat_history, [], default_assistant_name="wahl.chat Swiper Assistent"
+        chat_history, [], default_assistant_name="ChatVote Swiper Assistant"
     )
 
     title_and_quick_replies = await generate_swiper_assistant_title_and_chick_replies(
         chat_history_str, body.current_political_question
     )
 
-    wahl_chat_swiper_answer_dto = WahlChatSwiperAnswerDto(
+    chatvote_swiper_answer_dto = ChatVoteSwiperAnswerDto(
         message=swiper_assistant_response,
         title=title_and_quick_replies.chat_title,
         quick_replies=title_and_quick_replies.quick_replies,
     )
 
-    return web.json_response(wahl_chat_swiper_answer_dto.model_dump())
+    return web.json_response(chatvote_swiper_answer_dto.model_dump())
 
 
 app = web.Application(middlewares=[api_key_middleware])
