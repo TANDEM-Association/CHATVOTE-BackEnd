@@ -98,8 +98,12 @@ generate_chat_title_and_quick_replies_llms: list[LLM] = DETERMINISTIC_LLMS
 
 reranking_llms = DETERMINISTIC_LLMS
 
-perplexity_client = AsyncOpenAI(
-    api_key=os.getenv("PERPLEXITY_API_KEY"), base_url="https://api.perplexity.ai"
+# Perplexity client (conditionally initialized)
+_perplexity_api_key = os.getenv("PERPLEXITY_API_KEY")
+perplexity_client = (
+    AsyncOpenAI(api_key=_perplexity_api_key, base_url="https://api.perplexity.ai")
+    if _perplexity_api_key
+    else None
 )
 
 
@@ -148,8 +152,29 @@ async def get_question_targets_and_type(
     all_available_parties: List[Party],
     currently_selected_parties: List[Party],
 ) -> Tuple[List[str], str, bool]:
-    # If no party selected, it's a chat with the assistant
-    is_assistant_only_chat = len(currently_selected_parties) == 0
+    """
+    Determine which parties should respond to the user's message.
+
+    Logic:
+    - If exactly one party is selected (not chat-vote), route directly to that party
+    - If multiple parties are selected, use LLM to determine if it's a comparison question
+    - If no party selected (or only chat-vote), use LLM for general routing
+    """
+    # Filter out chat-vote from selected parties to get "real" parties
+    real_selected_parties = [
+        p for p in currently_selected_parties if p.party_id != ASSISTANT_ID
+    ]
+
+    # Case 1: Exactly one real party selected -> route directly to that party
+    if len(real_selected_parties) == 1:
+        selected_party_id = real_selected_parties[0].party_id
+        logger.info(f"Single party selected - routing directly to: {selected_party_id}")
+        return ([selected_party_id], user_message, False)
+
+    # Case 2: Multiple real parties selected -> need LLM to determine comparison vs individual
+    # Case 3: No real party selected -> need LLM for general routing
+
+    is_assistant_only_chat = len(real_selected_parties) == 0
 
     user_message_for_target_selection = user_message
     if previous_chat_history == "":
@@ -307,6 +332,12 @@ async def generate_pro_con_perspective(
         ChatCompletionSystemMessageParam(role="system", content=system_prompt),
         ChatCompletionUserMessageParam(role="user", content=user_prompt),
     ]
+
+    # Check if Perplexity is available
+    if perplexity_client is None:
+        raise Exception(
+            "Perplexity API key not configured. Set PERPLEXITY_API_KEY environment variable."
+        )
 
     # chat completion without streaming
     response = await perplexity_client.chat.completions.create(
@@ -686,6 +717,12 @@ async def generate_swiper_assistant_response(
         ChatCompletionSystemMessageParam(role="system", content=system_prompt),
         ChatCompletionUserMessageParam(role="user", content=user_prompt),
     ]
+
+    # Check if Perplexity is available
+    if perplexity_client is None:
+        raise Exception(
+            "Perplexity API key not configured. Set PERPLEXITY_API_KEY environment variable."
+        )
 
     # perplexity chat completion without streaming
     model = "sonar" if chat_response_llm_size == LLMSize.SMALL else "sonar-pro"

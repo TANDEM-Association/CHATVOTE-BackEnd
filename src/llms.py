@@ -25,44 +25,72 @@ CAPACITY_GPT_4O_MINI_AZURE = 108
 CAPACITY_CLAUDE_SONNET = 50
 CAPACITY_CLAUDE_HAIKU = 100
 
+# Load API keys (conditionally)
+_azure_api_key = safe_load_api_key("AZURE_OPENAI_API_KEY")
+_azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+_azure_api_version = os.getenv("OPENAI_API_VERSION")
+_google_api_key = safe_load_api_key("GOOGLE_API_KEY")
+_openai_api_key = safe_load_api_key("OPENAI_API_KEY")
+_anthropic_api_key = safe_load_api_key("ANTHROPIC_API_KEY")
 
-azure_gpt_4o = AzureChatOpenAI(
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-    deployment_name="gpt-4o-2024-08-06",
-    openai_api_version=os.getenv("OPENAI_API_VERSION"),
-    api_key=safe_load_api_key("AZURE_OPENAI_API_KEY"),
-    max_retries=0,
+# Azure OpenAI models (conditionally initialized)
+azure_gpt_4o = (
+    AzureChatOpenAI(
+        azure_endpoint=_azure_endpoint,
+        deployment_name="gpt-4o-2024-08-06",
+        openai_api_version=_azure_api_version,
+        api_key=_azure_api_key,
+        max_retries=0,
+    )
+    if _azure_api_key and _azure_endpoint
+    else None
 )
 
-azure_gpt_4o_mini = AzureChatOpenAI(
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-    deployment_name="gpt-4o-mini-2024-07-18",
-    openai_api_version=os.getenv("OPENAI_API_VERSION"),
-    api_key=safe_load_api_key("AZURE_OPENAI_API_KEY"),
-    max_retries=0,
+azure_gpt_4o_mini = (
+    AzureChatOpenAI(
+        azure_endpoint=_azure_endpoint,
+        deployment_name="gpt-4o-mini-2024-07-18",
+        openai_api_version=_azure_api_version,
+        api_key=_azure_api_key,
+        max_retries=0,
+    )
+    if _azure_api_key and _azure_endpoint
+    else None
 )
 
-google_gemini_2_flash = ChatGoogleGenerativeAI(
-    model="gemini-2.0-flash",
-    api_key=safe_load_api_key("GOOGLE_API_KEY"),
-    max_retries=0,
+# Google Gemini models (conditionally initialized)
+google_gemini_2_flash = (
+    ChatGoogleGenerativeAI(
+        model="gemini-2.0-flash",
+        api_key=_google_api_key,
+        max_retries=0,
+    )
+    if _google_api_key
+    else None
 )
 
-openai_gpt_4o = ChatOpenAI(
-    model="gpt-4o-2024-08-06",
-    api_key=safe_load_api_key("OPENAI_API_KEY"),
-    max_retries=0,
+# OpenAI models (conditionally initialized)
+openai_gpt_4o = (
+    ChatOpenAI(
+        model="gpt-4o-2024-08-06",
+        api_key=_openai_api_key,
+        max_retries=0,
+    )
+    if _openai_api_key
+    else None
 )
 
-openai_gpt_4o_mini = ChatOpenAI(
-    model="gpt-4o-mini",
-    api_key=safe_load_api_key("OPENAI_API_KEY"),
-    max_retries=0,
+openai_gpt_4o_mini = (
+    ChatOpenAI(
+        model="gpt-4o-mini",
+        api_key=_openai_api_key,
+        max_retries=0,
+    )
+    if _openai_api_key
+    else None
 )
 
 # Anthropic Claude models (conditionally initialized)
-_anthropic_api_key = safe_load_api_key("ANTHROPIC_API_KEY")
-
 anthropic_claude_sonnet = (
     ChatAnthropic(
         model="claude-sonnet-4-20250514",
@@ -83,52 +111,71 @@ anthropic_claude_haiku = (
     else None
 )
 
-_base_non_deterministic_llms: list[LLM] = [
-    LLM(
-        name="google-gemini-2.0-flash",
-        model=google_gemini_2_flash,
-        sizes=[LLMSize.SMALL, LLMSize.LARGE],
-        priority=100,
-        user_capacity_per_minute=CAPACITY_GEMINI_2_FLASH,
-        is_at_rate_limit=False,
-    ),
-    LLM(
-        name="azure-gpt-4o",
-        model=azure_gpt_4o,
-        sizes=[LLMSize.LARGE],
-        priority=90,
-        user_capacity_per_minute=CAPACITY_GPT_4O_AZURE,
-        is_at_rate_limit=False,
-        premium_only=True,
-    ),
-    LLM(
-        name="openai-gpt-4o",
-        model=openai_gpt_4o,
-        sizes=[LLMSize.LARGE],
-        priority=98,
-        user_capacity_per_minute=CAPACITY_GPT_4O_OPENAI_TIER_5,
-        is_at_rate_limit=False,
-        premium_only=False,
-    ),
-    LLM(
-        name="azure-gpt-4o-mini",
-        model=azure_gpt_4o_mini,
-        sizes=[LLMSize.SMALL],
-        priority=50,
-        user_capacity_per_minute=CAPACITY_GPT_4O_MINI_AZURE,
-        is_at_rate_limit=False,
-    ),
-    LLM(
-        name="openai-gpt-4o-mini",
-        model=openai_gpt_4o_mini,
-        sizes=[LLMSize.SMALL],
-        priority=40,
-        user_capacity_per_minute=CAPACITY_GPT_4O_MINI_OPENAI_TIER_5,
-        is_at_rate_limit=False,
-    ),
-]
+# Build non-deterministic LLMs list dynamically based on available API keys
+_base_non_deterministic_llms: list[LLM] = []
 
-# Add Anthropic Claude models if API key is available
+if google_gemini_2_flash is not None:
+    _base_non_deterministic_llms.append(
+        LLM(
+            name="google-gemini-2.0-flash",
+            model=google_gemini_2_flash,
+            sizes=[LLMSize.SMALL, LLMSize.LARGE],
+            priority=100,
+            user_capacity_per_minute=CAPACITY_GEMINI_2_FLASH,
+            is_at_rate_limit=False,
+        )
+    )
+
+if azure_gpt_4o is not None:
+    _base_non_deterministic_llms.append(
+        LLM(
+            name="azure-gpt-4o",
+            model=azure_gpt_4o,
+            sizes=[LLMSize.LARGE],
+            priority=90,
+            user_capacity_per_minute=CAPACITY_GPT_4O_AZURE,
+            is_at_rate_limit=False,
+            premium_only=True,
+        )
+    )
+
+if openai_gpt_4o is not None:
+    _base_non_deterministic_llms.append(
+        LLM(
+            name="openai-gpt-4o",
+            model=openai_gpt_4o,
+            sizes=[LLMSize.LARGE],
+            priority=98,
+            user_capacity_per_minute=CAPACITY_GPT_4O_OPENAI_TIER_5,
+            is_at_rate_limit=False,
+            premium_only=False,
+        )
+    )
+
+if azure_gpt_4o_mini is not None:
+    _base_non_deterministic_llms.append(
+        LLM(
+            name="azure-gpt-4o-mini",
+            model=azure_gpt_4o_mini,
+            sizes=[LLMSize.SMALL],
+            priority=50,
+            user_capacity_per_minute=CAPACITY_GPT_4O_MINI_AZURE,
+            is_at_rate_limit=False,
+        )
+    )
+
+if openai_gpt_4o_mini is not None:
+    _base_non_deterministic_llms.append(
+        LLM(
+            name="openai-gpt-4o-mini",
+            model=openai_gpt_4o_mini,
+            sizes=[LLMSize.SMALL],
+            priority=40,
+            user_capacity_per_minute=CAPACITY_GPT_4O_MINI_OPENAI_TIER_5,
+            is_at_rate_limit=False,
+        )
+    )
+
 if anthropic_claude_sonnet is not None:
     _base_non_deterministic_llms.append(
         LLM(
@@ -155,28 +202,45 @@ if anthropic_claude_haiku is not None:
 
 NON_DETERMINISTIC_LLMS: list[LLM] = _base_non_deterministic_llms
 
-azure_gpt_4o_mini_det = AzureChatOpenAI(
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-    deployment_name="gpt-4o-mini-2024-07-18",
-    openai_api_version=os.getenv("OPENAI_API_VERSION"),
-    api_key=safe_load_api_key("AZURE_OPENAI_API_KEY"),
-    temperature=0.0,
-    max_retries=0,
+# Log available LLMs at startup
+logger.info(
+    f"Loaded {len(NON_DETERMINISTIC_LLMS)} non-deterministic LLMs: {[llm.name for llm in NON_DETERMINISTIC_LLMS]}"
 )
 
-google_gemini_2_flash_det = ChatGoogleGenerativeAI(
-    model="gemini-2.0-flash",
-    api_key=safe_load_api_key("GOOGLE_API_KEY"),
-    temperature=0.0,
-    max_retries=0,
+# Deterministic models (conditionally initialized)
+azure_gpt_4o_mini_det = (
+    AzureChatOpenAI(
+        azure_endpoint=_azure_endpoint,
+        deployment_name="gpt-4o-mini-2024-07-18",
+        openai_api_version=_azure_api_version,
+        api_key=_azure_api_key,
+        temperature=0.0,
+        max_retries=0,
+    )
+    if _azure_api_key and _azure_endpoint
+    else None
 )
 
+google_gemini_2_flash_det = (
+    ChatGoogleGenerativeAI(
+        model="gemini-2.0-flash",
+        api_key=_google_api_key,
+        temperature=0.0,
+        max_retries=0,
+    )
+    if _google_api_key
+    else None
+)
 
-openai_gpt_4o_mini_det = ChatOpenAI(
-    model="gpt-4o-mini",
-    api_key=safe_load_api_key("OPENAI_API_KEY"),
-    temperature=0.0,
-    max_retries=0,
+openai_gpt_4o_mini_det = (
+    ChatOpenAI(
+        model="gpt-4o-mini",
+        api_key=_openai_api_key,
+        temperature=0.0,
+        max_retries=0,
+    )
+    if _openai_api_key
+    else None
 )
 
 # Anthropic Claude deterministic models (conditionally initialized)
@@ -202,34 +266,45 @@ anthropic_claude_haiku_det = (
     else None
 )
 
-_base_deterministic_llms: list[LLM] = [
-    LLM(
-        name="google-gemini-2.0-flash-det",
-        model=google_gemini_2_flash_det,
-        sizes=[LLMSize.SMALL, LLMSize.LARGE],
-        priority=100,
-        user_capacity_per_minute=CAPACITY_GEMINI_2_FLASH,
-        is_at_rate_limit=False,
-    ),
-    LLM(
-        name="azure-gpt-4o-mini-det",
-        model=azure_gpt_4o_mini_det,
-        sizes=[LLMSize.SMALL],
-        priority=90,
-        user_capacity_per_minute=CAPACITY_GPT_4O_MINI_AZURE,
-        is_at_rate_limit=False,
-    ),
-    LLM(
-        name="openai-gpt-4o-mini-det",
-        model=openai_gpt_4o_mini_det,
-        sizes=[LLMSize.SMALL],
-        priority=80,
-        user_capacity_per_minute=CAPACITY_GPT_4O_MINI_OPENAI_TIER_5,
-        is_at_rate_limit=False,
-    ),
-]
+# Build deterministic LLMs list dynamically based on available API keys
+_base_deterministic_llms: list[LLM] = []
 
-# Add Anthropic Claude deterministic models if API key is available
+if google_gemini_2_flash_det is not None:
+    _base_deterministic_llms.append(
+        LLM(
+            name="google-gemini-2.0-flash-det",
+            model=google_gemini_2_flash_det,
+            sizes=[LLMSize.SMALL, LLMSize.LARGE],
+            priority=100,
+            user_capacity_per_minute=CAPACITY_GEMINI_2_FLASH,
+            is_at_rate_limit=False,
+        )
+    )
+
+if azure_gpt_4o_mini_det is not None:
+    _base_deterministic_llms.append(
+        LLM(
+            name="azure-gpt-4o-mini-det",
+            model=azure_gpt_4o_mini_det,
+            sizes=[LLMSize.SMALL],
+            priority=90,
+            user_capacity_per_minute=CAPACITY_GPT_4O_MINI_AZURE,
+            is_at_rate_limit=False,
+        )
+    )
+
+if openai_gpt_4o_mini_det is not None:
+    _base_deterministic_llms.append(
+        LLM(
+            name="openai-gpt-4o-mini-det",
+            model=openai_gpt_4o_mini_det,
+            sizes=[LLMSize.SMALL],
+            priority=80,
+            user_capacity_per_minute=CAPACITY_GPT_4O_MINI_OPENAI_TIER_5,
+            is_at_rate_limit=False,
+        )
+    )
+
 if anthropic_claude_sonnet_det is not None:
     _base_deterministic_llms.append(
         LLM(
@@ -256,9 +331,30 @@ if anthropic_claude_haiku_det is not None:
 
 DETERMINISTIC_LLMS: list[LLM] = _base_deterministic_llms
 
+# Log available deterministic LLMs at startup
+logger.info(
+    f"Loaded {len(DETERMINISTIC_LLMS)} deterministic LLMs: {[llm.name for llm in DETERMINISTIC_LLMS]}"
+)
+
 
 async def handle_rate_limit_hit_for_all_llms():
+    """Called when all LLMs have failed - notify Firestore."""
     await awrite_llm_status(is_at_rate_limit=True)
+
+
+async def handle_llm_success():
+    """Called when an LLM succeeds - reset the Firestore flag."""
+    await awrite_llm_status(is_at_rate_limit=False)
+
+
+async def reset_all_rate_limits():
+    """Reset rate limit flags for all LLMs (both in memory and Firestore)."""
+    for llm in NON_DETERMINISTIC_LLMS:
+        llm.is_at_rate_limit = False
+    for llm in DETERMINISTIC_LLMS:
+        llm.is_at_rate_limit = False
+    await awrite_llm_status(is_at_rate_limit=False)
+    logger.info("Reset rate limit flags for all LLMs")
 
 
 async def get_answer_from_llms(
@@ -272,6 +368,7 @@ async def get_answer_from_llms(
             logger.debug(f"Invoking LLM {llm.name}...")
             response = await llm.model.ainvoke(messages)
             llm.is_at_rate_limit = False
+            await handle_llm_success()  # Reset Firestore flag on success
             return response
         except Exception as e:
             logger.warning(f"Error invoking LLM {llm.name}: {e}")
@@ -285,6 +382,7 @@ async def get_answer_from_llms(
             logger.debug(f"Invoking LLM {llm.name}...")
             response = await llm.model.ainvoke(messages)
             llm.is_at_rate_limit = False
+            await handle_llm_success()  # Reset Firestore flag on success
             return response
         except Exception as e:
             logger.warning(f"Error invoking LLM {llm.name}: {e}")
@@ -304,11 +402,11 @@ async def get_structured_output_from_llms(
             prepared_model = llm.model.with_structured_output(schema)
             response = await prepared_model.ainvoke(messages)
             llm.is_at_rate_limit = False
+            await handle_llm_success()  # Reset Firestore flag on success
             return response
         except Exception as e:
             logger.warning(f"Error invoking LLM {llm.name}: {e}")
             llm.is_at_rate_limit = True
-            # TODO: consider writing to Firestore that this LLM now is at rate limit
             continue
 
     await handle_rate_limit_hit_for_all_llms()
@@ -319,6 +417,7 @@ async def get_structured_output_from_llms(
             prepared_model = llm.model.with_structured_output(schema)
             response = await prepared_model.ainvoke(messages)
             llm.is_at_rate_limit = False
+            await handle_llm_success()  # Reset Firestore flag on success
             return response
         except Exception as e:
             logger.warning(f"Error invoking LLM {llm.name}: {e}")
@@ -326,15 +425,15 @@ async def get_structured_output_from_llms(
     raise Exception("All LLMs are at rate limit.")
 
 
-async def stream_answer_from_llms(
+def _sort_llms_by_size_preference(
     llms: list[LLM],
-    messages: list[BaseMessage],
-    preferred_llm_size: LLMSize = LLMSize.LARGE,
-    use_premium_llms: bool = False,
-) -> AsyncIterator[BaseMessageChunk]:
-    logger.debug(f"Preferred LLM size: {preferred_llm_size}")
+    preferred_llm_size: LLMSize,
+    use_premium_llms: bool,
+) -> list[LLM]:
+    """Sort LLMs by size preference and filter premium if needed."""
     if not use_premium_llms:
         llms = [llm for llm in llms if not llm.premium_only]
+
     if preferred_llm_size == LLMSize.LARGE:
         large_llms = [llm for llm in llms if LLMSize.LARGE in llm.sizes]
         small_llms = [
@@ -344,7 +443,7 @@ async def stream_answer_from_llms(
         ]
         large_llms = sorted(large_llms, key=lambda x: x.priority, reverse=True)
         small_llms = sorted(small_llms, key=lambda x: x.priority, reverse=True)
-        llms = large_llms + small_llms
+        return large_llms + small_llms
     elif preferred_llm_size == LLMSize.SMALL:
         small_llms = [llm for llm in llms if LLMSize.SMALL in llm.sizes]
         large_llms = [
@@ -354,18 +453,69 @@ async def stream_answer_from_llms(
         ]
         large_llms = sorted(large_llms, key=lambda x: x.priority, reverse=True)
         small_llms = sorted(small_llms, key=lambda x: x.priority, reverse=True)
-        llms = small_llms + large_llms
+        return small_llms + large_llms
     else:
         raise ValueError(f"Invalid preferred LLM size: {preferred_llm_size}")
-    for llm in llms:
-        try:
-            logger.debug(f"Invoking LLM {llm.name}...")
-            response = llm.model.astream(messages)
-            llm.is_at_rate_limit = False
-            return response
-        except Exception as e:
-            logger.warning(f"Error invoking LLM {llm.name}: {e}")
-            llm.is_at_rate_limit = True
-            continue
 
-    return await handle_rate_limit_hit_for_all_llms()
+
+async def stream_answer_from_llms(
+    llms: list[LLM],
+    messages: list[BaseMessage],
+    preferred_llm_size: LLMSize = LLMSize.LARGE,
+    use_premium_llms: bool = False,
+) -> AsyncIterator[BaseMessageChunk]:
+    """
+    Stream answer from LLMs with automatic fallback on rate limit errors.
+
+    This function handles errors that occur DURING streaming (mid-stream),
+    not just at initialization. If a rate limit error occurs while streaming,
+    it automatically switches to the next available LLM and continues.
+    """
+    logger.debug(f"Preferred LLM size: {preferred_llm_size}")
+    sorted_llms = _sort_llms_by_size_preference(
+        llms, preferred_llm_size, use_premium_llms
+    )
+
+    async def resilient_stream() -> AsyncIterator[BaseMessageChunk]:
+        """Generator that handles mid-stream errors and falls back to next LLM."""
+        llm_index = 0
+        chunks_yielded = 0
+
+        while llm_index < len(sorted_llms):
+            llm = sorted_llms[llm_index]
+            try:
+                logger.info(f"Starting stream with LLM {llm.name}...")
+                stream = llm.model.astream(messages)
+
+                async for chunk in stream:
+                    chunks_yielded += 1
+                    yield chunk
+
+                # Stream completed successfully
+                llm.is_at_rate_limit = False
+                await handle_llm_success()
+                logger.info(
+                    f"Stream completed successfully with {llm.name} ({chunks_yielded} chunks)"
+                )
+                return
+
+            except Exception as e:
+                llm.is_at_rate_limit = True
+                llm_index += 1
+
+                if llm_index < len(sorted_llms):
+                    next_llm = sorted_llms[llm_index]
+                    logger.warning(
+                        f"Error with LLM {llm.name} after {chunks_yielded} chunks: {e}. "
+                        f"Falling back to {next_llm.name}..."
+                    )
+                    # Reset chunk counter for new LLM (we restart the full response)
+                    chunks_yielded = 0
+                else:
+                    logger.error(
+                        f"Error with LLM {llm.name}: {e}. No more LLMs to try."
+                    )
+                    await handle_rate_limit_hit_for_all_llms()
+                    raise Exception(f"All LLMs failed. Last error: {e}")
+
+    return resilient_stream()

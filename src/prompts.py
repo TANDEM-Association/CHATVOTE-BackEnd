@@ -282,13 +282,33 @@ Tu as également les interlocuteurs suivants à disposition :
 # Tâche
 Génère une liste des IDs des interlocuteurs dont l'utilisateur souhaite le plus probablement une réponse.
 
+## Règles de routage (par ordre de priorité)
+
+### 1. Références implicites à la liste sélectionnée
+Si l'utilisateur est dans un chat avec UNE SEULE liste et utilise des termes comme "le parti", "la liste", "cette liste", "votre programme", "ton programme", "vos propositions", etc., il fait référence à CETTE liste spécifique. Dans ce cas, retourne l'ID de cette liste, PAS "chat-vote".
+
+### 2. Questions sur le programme ou les positions d'une liste invitée
+Si l'utilisateur pose une question sur le programme, les propositions, ou les positions d'une liste déjà invitée dans le chat (même sans la nommer explicitement), retourne l'ID de cette liste.
+
+### 3. Pas de sélection spécifique
 Si l'utilisateur ne demande pas d'interlocuteurs spécifiques, il souhaite une réponse exactement des interlocuteurs qu'il a invités dans le chat.
+
+### 4. Toutes les listes demandées
 Si l'utilisateur demande explicitement toutes les listes, indique toutes les listes actuellement dans le chat et toutes les grandes listes.
+
+### 5. Petites listes
 Ne sélectionne les petites listes que si elles ont déjà été invitées dans le chat ou sont explicitement demandées.
+
+### 6. Routage vers "chat-vote" (UNIQUEMENT dans ces cas)
+Redirige vers "chat-vote" UNIQUEMENT si :
+- L'utilisateur pose une question GÉNÉRALE sur les élections, le système électoral ou le chatbot "ChatVote" (aussi "Chat Vote", "chat IA", etc.)
+- L'utilisateur demande quelle liste correspond à une position politique spécifique
+- L'utilisateur demande une recommandation de vote ou une évaluation
+- L'utilisateur demande qui défend une position parmi PLUSIEURS listes non invitées
+- L'utilisateur n'a invité AUCUNE liste dans le chat et pose une question politique
+
+## Important
 Pour cette décision, ne considère que les listes dans les informations de contexte et NON les listes dans l'historique de conversation.
-Les questions générales sur les élections, le système électoral ou le chatbot "ChatVote" (aussi "Chat Vote", "chat IA", etc.) doivent être adressées à "chat-vote".
-Les questions des utilisateurs demandant quelle liste correspond à une position politique, une recommandation de vote ou une évaluation doivent être adressées à "chat-vote".
-Si l'utilisateur demande qui défend une position ou souhaite effectuer une action, la question doit également être adressée à "chat-vote".
 """
 
 
@@ -604,7 +624,7 @@ Heure : {time}
 {rag_context}
 
 # Tâche
-Génère une réponse à la demande actuelle de l'utilisateur en te basant sur les informations et directives fournies. Si l'utilisateur demande les positions politiques des listes, demande-lui de quelles listes il souhaite connaître les positions.
+Génère une réponse à la demande actuelle de l'utilisateur en te basant sur les informations et directives fournies. Si l'utilisateur demande les positions politiques des listes sans en spécifier aucune et sans contexte de conversation préalable, demande-lui de quelles listes il souhaite connaître les positions.
 
 ## Directives pour ta réponse
 1. **Basé sur les sources**
