@@ -40,13 +40,23 @@ const jsonFile = filteredArgs[1];
 const credentialsFile = filteredArgs[2] || findCredentialsFile();
 
 function findCredentialsFile() {
-  // Look for Firebase credentials file in current directory
-  const files = fs.readdirSync('.');
-  const credFile = files.find(f => f.includes('firebase-adminsdk') && f.endsWith('.json'));
-  if (credFile) {
-    return credFile;
+  // Directories to search for credentials (current dir, parent dir, project root)
+  const searchDirs = ['.', '..', path.join(__dirname, '..')];
+
+  for (const dir of searchDirs) {
+    try {
+      const files = fs.readdirSync(dir);
+      const credFile = files.find(f => f.includes('firebase-adminsdk') && f.endsWith('.json'));
+      if (credFile) {
+        return path.join(dir, credFile);
+      }
+    } catch {
+      // Directory doesn't exist or can't be read, skip
+    }
   }
+
   console.error('Error: No Firebase credentials file found. Please specify one.');
+  console.error('Searched in: current directory, parent directory, and project root.');
   process.exit(1);
 }
 

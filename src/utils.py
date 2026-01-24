@@ -162,13 +162,13 @@ def sanitize_references(text: str) -> str:
 
 
 if __name__ == "__main__":
-    text = """Die Grünen setzen sich für **gute Arbeit** und **faire Löhne** für Fabrikarbeiter ein. Sie wollen:
+    text = """Les Verts s'engagent pour un **travail de qualité** et des **salaires équitables** pour les ouvriers. Ils veulent :
 
-- **Faire Mindestlöhne**: Ein Mindestlohn von zunächst **15 Euro** im Jahr 2025, der auch für unter 18-Jährige gilt, um die Inflation auszugleichen. [id1]
-- **Stärkung der Mitbestimmung**: Die betriebliche Mitbestimmung soll gestärkt werden, um Beschäftigten mehr Einfluss auf ihre Arbeitsbedingungen zu geben. [<2>]
-- **Schutz vor Missbrauch**: Gegen Schein-Selbstständigkeit und den Missbrauch von Werkverträgen soll entschieden vorgegangen werden. [id2, id3]
+- **Salaires minimums équitables** : Un salaire minimum de **15 euros** dès 2025, applicable également aux moins de 18 ans, pour compenser l'inflation. [id1]
+- **Renforcement de la participation** : La participation des employés doit être renforcée pour leur donner plus d'influence sur leurs conditions de travail. [<2>]
+- **Protection contre les abus** : Une action décisive contre le faux travail indépendant et l'abus des contrats de sous-traitance. [id2, id3]
 
-Diese Maßnahmen zielen darauf ab, die Arbeitsbedingungen und die soziale Absicherung für Fabrikarbeiter zu verbessern.
+Ces mesures visent à améliorer les conditions de travail et la protection sociale des ouvriers.
 """
     sanitized_text = sanitize_references(text)
     print(sanitized_text)

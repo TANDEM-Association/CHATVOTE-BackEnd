@@ -125,7 +125,7 @@ def _get_vector_store(collection_name: str) -> QdrantVectorStore:
         collection_name=collection_name,
         embedding=embed,
         vector_name="dense",
-        content_payload_key="text",
+        content_payload_key="page_content",
     )
 
 
@@ -160,7 +160,7 @@ def get_parliamentary_questions_vector_store() -> QdrantVectorStore:
 
 async def _identify_relevant_documents(
     vector_store: QdrantVectorStore,
-    namespace: str,
+    namespace: Optional[str],
     rag_query: str,
     n_docs: int = 5,
     score_threshold: float = 0.5,
@@ -168,14 +168,23 @@ async def _identify_relevant_documents(
     """
     Identify relevant documents based on the provided query and namespace.
     Uses direct Qdrant client to ensure all metadata is preserved.
+
+    If namespace is None, searches all documents without filtering.
     """
     # Get query vector
     query_vector = await embed.aembed_query(rag_query)
 
-    # Create filter for the namespace
-    filter_condition = Filter(
-        must=[FieldCondition(key="namespace", match=MatchValue(value=namespace))]
-    )
+    # Create filter for the namespace (if provided)
+    # Note: LangChain stores metadata under "metadata.*" in Qdrant
+    filter_condition = None
+    if namespace is not None:
+        filter_condition = Filter(
+            must=[
+                FieldCondition(
+                    key="metadata.namespace", match=MatchValue(value=namespace)
+                )
+            ]
+        )
 
     # Search directly using Qdrant client to preserve all metadata
     # Note: Using sync client in async context - this might need optimization later
@@ -194,11 +203,21 @@ async def _identify_relevant_documents(
         if point.payload is None:
             continue
 
-        # Extract content from text field
-        content = point.payload.get("text", "")
+        # LangChain QdrantVectorStore stores data with:
+        # - "page_content" for text content
+        # - "metadata" dict for metadata
+        content = point.payload.get("page_content", "")
 
-        # Extract metadata (everything except text)
-        metadata = {k: v for k, v in point.payload.items() if k != "text"}
+        # Extract metadata from nested "metadata" field if present
+        metadata = point.payload.get("metadata", {})
+
+        # If metadata is not nested (legacy format), extract from top level
+        if not metadata and "namespace" in point.payload:
+            metadata = {
+                k: v
+                for k, v in point.payload.items()
+                if k not in ["page_content", "text"]
+            }
 
         # Create Document with proper content and metadata
         doc = Document(page_content=content, metadata=metadata)
@@ -249,10 +268,24 @@ async def identify_relevant_docs_with_llm_based_reranking(
     user_message: str,
     n_docs: int = 20,
     score_threshold: float = 0.5,
+    target_party_id: Optional[str] = None,
 ) -> list[Document]:
+    from src.models.assistant import ASSISTANT_ID
+
+    # Determine namespace for search:
+    # - If target_party_id is provided, use it
+    # - If responder is the ChatVote assistant, search ALL documents (no namespace filter)
+    # - Otherwise, use the responder's party_id
+    if target_party_id:
+        namespace = target_party_id
+    elif responder.party_id == ASSISTANT_ID:
+        namespace = None  # Search all documents
+    else:
+        namespace = responder.party_id
+
     relevant_docs = await _identify_relevant_documents(
         vector_store=get_qdrant_vector_store(),
-        namespace=responder.party_id,
+        namespace=namespace,
         rag_query=rag_query,
         n_docs=n_docs,
         score_threshold=score_threshold,

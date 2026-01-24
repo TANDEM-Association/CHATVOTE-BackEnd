@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
 import argparse
+import asyncio
 import logging
 import os
 import json
@@ -15,7 +16,11 @@ from src.chatbot_async import (
     get_improved_rag_query_voting_behavior,
 )
 from src.firebase_service import aget_party_by_id
+from src.llms import reset_all_rate_limits
 from src.models.assistant import CHATVOTE_ASSISTANT
+from src.services.manifesto_indexer import index_all_parties, index_party_by_id
+from src.vector_store_helper import qdrant_client, PARTY_INDEX_NAME, embed
+from src.services.firestore_listener import start_parties_listener, is_listener_running
 from src.models.chat import Message, Role
 from src.models.dtos import (
     ParliamentaryQuestionDto,
@@ -68,6 +73,199 @@ async def get_assistant_info(request):
     without needing to store it in Firestore.
     """
     return web.json_response(CHATVOTE_ASSISTANT.model_dump())
+
+
+@routes.post(f"{route_prefix}/admin/index-all-manifestos")
+async def admin_index_all_manifestos(request):
+    """
+    Admin endpoint to trigger indexation of all party manifestos.
+
+    This should be called once to index existing parties, or to re-index all.
+    """
+    logger.info("Admin triggered: indexing all party manifestos")
+
+    try:
+        results = await index_all_parties()
+        total = sum(results.values())
+
+        return web.json_response(
+            {
+                "status": "success",
+                "message": f"Indexed {total} chunks for {len(results)} parties",
+                "details": results,
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error indexing manifestos: {e}", exc_info=True)
+        return web.json_response(
+            {"status": "error", "message": str(e)},
+            status=500,
+        )
+
+
+@routes.post(route_prefix + "/admin/index-party-manifesto/{party_id}")
+async def admin_index_party_manifesto(request):
+    """Admin endpoint to trigger indexation of a specific party's manifesto."""
+    party_id = request.match_info["party_id"]
+    logger.info(f"Admin triggered: indexing manifesto for party {party_id}")
+
+    try:
+        count = await index_party_by_id(party_id)
+
+        if count > 0:
+            return web.json_response(
+                {
+                    "status": "success",
+                    "message": f"Indexed {count} chunks for party {party_id}",
+                }
+            )
+        else:
+            return web.json_response(
+                {
+                    "status": "warning",
+                    "message": f"No chunks indexed for party {party_id}. Check if manifesto URL exists.",
+                }
+            )
+    except Exception as e:
+        logger.error(f"Error indexing manifesto for {party_id}: {e}", exc_info=True)
+        return web.json_response(
+            {"status": "error", "message": str(e)},
+            status=500,
+        )
+
+
+@routes.get(f"{route_prefix}/admin/listener-status")
+async def admin_listener_status(request):
+    """Check if the Firestore listener is running."""
+    return web.json_response(
+        {
+            "listener_running": is_listener_running(),
+        }
+    )
+
+
+@routes.post(f"{route_prefix}/admin/reset-rate-limit")
+async def admin_reset_rate_limit(request):
+    """Reset the LLM rate limit status (both in memory and Firestore)."""
+    logger.info("Admin triggered: resetting LLM rate limit status")
+    try:
+        await reset_all_rate_limits()
+        return web.json_response(
+            {
+                "status": "success",
+                "message": "LLM rate limit status reset (memory + Firestore)",
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error resetting rate limit status: {e}", exc_info=True)
+        return web.json_response(
+            {"status": "error", "message": str(e)},
+            status=500,
+        )
+
+
+@routes.get(f"{route_prefix}/admin/debug-qdrant")
+async def admin_debug_qdrant(request):
+    """Debug endpoint to check Qdrant collection status."""
+    try:
+        # Get collection info
+        collection_info = qdrant_client.get_collection(PARTY_INDEX_NAME)
+
+        # Get a sample of points
+        points = qdrant_client.scroll(
+            collection_name=PARTY_INDEX_NAME,
+            limit=5,
+            with_payload=True,
+            with_vectors=False,
+        )
+
+        sample_docs = []
+        for point in points[0]:
+            payload = point.payload or {}
+            sample_docs.append(
+                {
+                    "id": str(point.id),
+                    "metadata": payload.get("metadata", {}),
+                    "content_preview": (payload.get("page_content", "")[:200] + "...")
+                    if payload.get("page_content")
+                    else "No content",
+                }
+            )
+
+        return web.json_response(
+            {
+                "collection_name": PARTY_INDEX_NAME,
+                "points_count": collection_info.points_count,
+                "vectors_count": collection_info.vectors_count,
+                "sample_documents": sample_docs,
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error debugging Qdrant: {e}", exc_info=True)
+        return web.json_response(
+            {"status": "error", "message": str(e)},
+            status=500,
+        )
+
+
+@routes.post(f"{route_prefix}/admin/test-rag-search")
+async def admin_test_rag_search(request):
+    """Test RAG search for a party."""
+    try:
+        data = await request.json()
+        party_id = data.get("party_id", "place-publique")
+        query = data.get("query", "résumé du programme")
+
+        from qdrant_client.models import Filter, FieldCondition, MatchValue
+
+        # Get query vector
+        query_vector = await embed.aembed_query(query)
+
+        # Search with filter
+        filter_condition = Filter(
+            must=[
+                FieldCondition(
+                    key="metadata.namespace", match=MatchValue(value=party_id)
+                )
+            ]
+        )
+
+        results = qdrant_client.search(
+            collection_name=PARTY_INDEX_NAME,
+            query_vector=("dense", query_vector),
+            limit=5,
+            with_payload=True,
+            query_filter=filter_condition,
+            score_threshold=0.3,
+        )
+
+        docs = []
+        for point in results:
+            payload = point.payload or {}
+            docs.append(
+                {
+                    "score": point.score,
+                    "metadata": payload.get("metadata", {}),
+                    "content_preview": (payload.get("page_content", "")[:300] + "...")
+                    if payload.get("page_content")
+                    else "No content",
+                }
+            )
+
+        return web.json_response(
+            {
+                "party_id": party_id,
+                "query": query,
+                "results_count": len(docs),
+                "documents": docs,
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error testing RAG search: {e}", exc_info=True)
+        return web.json_response(
+            {"status": "error", "message": str(e)},
+            status=500,
+        )
 
 
 @routes.post(f"{route_prefix}/get-parliamentary-question")
@@ -195,6 +393,31 @@ for route in list(app.router.routes()):
     cors.add(route, cors_config)
 
 sio.attach(app)
+
+
+# Start Firestore listener for automatic manifesto indexation
+async def on_startup(app):
+    """Called when the application starts."""
+    # Reset rate limit flag on startup
+    logger.info("Resetting LLM rate limit flags on startup...")
+    try:
+        await reset_all_rate_limits()
+        logger.info("LLM rate limit flags reset successfully")
+    except Exception as e:
+        logger.error(f"Failed to reset rate limit flags: {e}")
+
+    # Start Firestore listener
+    logger.info("Starting Firestore parties listener...")
+    try:
+        # Pass the current event loop for thread-safe async execution
+        event_loop = asyncio.get_running_loop()
+        start_parties_listener(event_loop=event_loop)
+        logger.info("Firestore parties listener started successfully")
+    except Exception as e:
+        logger.error(f"Failed to start Firestore listener: {e}")
+
+
+app.on_startup.append(on_startup)
 
 
 # Instantiate the argument parser

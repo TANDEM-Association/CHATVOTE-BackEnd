@@ -443,9 +443,17 @@ async def fetch_and_emit_response(
                 # Shift by +1 for display indexing
                 page_number += 1
 
+                # Extract a content preview (first 80 chars) to make source more descriptive
+                content_preview = (
+                    source_doc.page_content[:80].replace("\n", " ").strip()
+                )
+                if len(source_doc.page_content) > 80:
+                    content_preview += "..."
+
                 source = {
                     "source": source_doc.metadata.get("document_name"),
                     "page": page_number,
+                    "content_preview": content_preview,
                     "document_publish_date": source_doc.metadata.get(
                         "document_publish_date"
                     ),
@@ -482,9 +490,17 @@ async def fetch_and_emit_response(
                         page_number = int(page_raw if page_raw is not None else 0)
                         page_number += 1
 
+                        # Extract a content preview (first 80 chars) to make source more descriptive
+                        content_preview = (
+                            source_doc.page_content[:80].replace("\n", " ").strip()
+                        )
+                        if len(source_doc.page_content) > 80:
+                            content_preview += "..."
+
                         source = {
                             "source": source_doc.metadata.get("document_name"),
                             "page": page_number,
+                            "content_preview": content_preview,
                             "document_publish_date": source_doc.metadata.get(
                                 "document_publish_date"
                             ),
