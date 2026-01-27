@@ -2,7 +2,6 @@
 #
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
-from enum import StrEnum
 from pydantic import BaseModel, Field
 
 
@@ -25,19 +24,12 @@ class QuickReplyGenerator(BaseModel):
     )
 
 
-class PartyID(StrEnum):
-    """Party/list identifiers for French municipal elections."""
-
-    # These IDs will be defined dynamically based on the municipality
-    # ChatVote assistant has a special ID for general questions
-    ASSISTANT = "chat-vote"
-
-
 class PartyListGenerator(BaseModel):
     """Party list generator output."""
 
-    party_id_list: list[PartyID] = Field(
-        description="List of party/list IDs from which the user wants to get a response."
+    party_id_list: list[str] = Field(
+        description="List of party/list IDs from which the user wants to get a response. "
+        "Use 'chat-vote' for general questions about elections or ChatVote itself."
     )
 
 

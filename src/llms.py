@@ -103,7 +103,7 @@ anthropic_claude_sonnet = (
 
 anthropic_claude_haiku = (
     ChatAnthropic(
-        model="claude-3-5-haiku-20241022",
+        model="claude-3-5-haiku-latest",
         api_key=_anthropic_api_key,
         max_retries=0,
     )
@@ -257,7 +257,7 @@ anthropic_claude_sonnet_det = (
 
 anthropic_claude_haiku_det = (
     ChatAnthropic(
-        model="claude-3-5-haiku-20241022",
+        model="claude-3-5-haiku-latest",
         api_key=_anthropic_api_key,
         temperature=0.0,
         max_retries=0,
