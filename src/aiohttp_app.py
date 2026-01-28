@@ -23,7 +23,12 @@ from src.services.candidate_indexer import (
     index_all_candidates,
     index_candidate_by_id,
 )
-from src.vector_store_helper import qdrant_client, PARTY_INDEX_NAME, embed
+from src.vector_store_helper import (
+    qdrant_client,
+    PARTY_INDEX_NAME,
+    CANDIDATES_INDEX_NAME,
+    embed,
+)
 from src.services.firestore_listener import (
     start_parties_listener,
     start_candidates_listener,
@@ -272,6 +277,67 @@ async def admin_debug_qdrant(request):
         )
     except Exception as e:
         logger.error(f"Error debugging Qdrant: {e}", exc_info=True)
+        return web.json_response(
+            {"status": "error", "message": str(e)},
+            status=500,
+        )
+
+
+@routes.get(f"{route_prefix}/admin/debug-candidates-qdrant")
+async def admin_debug_candidates_qdrant(request):
+    """Debug endpoint to check Qdrant candidates collection status."""
+    try:
+        # Check if collection exists
+        collections = qdrant_client.get_collections().collections
+        collection_names = [c.name for c in collections]
+
+        if CANDIDATES_INDEX_NAME not in collection_names:
+            return web.json_response(
+                {
+                    "status": "warning",
+                    "message": f"Collection {CANDIDATES_INDEX_NAME} does not exist yet",
+                    "available_collections": collection_names,
+                }
+            )
+
+        # Get collection info
+        collection_info = qdrant_client.get_collection(CANDIDATES_INDEX_NAME)
+
+        # Get a sample of points
+        points = qdrant_client.scroll(
+            collection_name=CANDIDATES_INDEX_NAME,
+            limit=10,
+            with_payload=True,
+            with_vectors=False,
+        )
+
+        sample_docs = []
+        for point in points[0]:
+            payload = point.payload or {}
+            metadata = payload.get("metadata", {})
+            sample_docs.append(
+                {
+                    "id": str(point.id),
+                    "candidate_name": metadata.get("candidate_name", "Unknown"),
+                    "candidate_id": metadata.get("candidate_id", "Unknown"),
+                    "municipality_code": metadata.get("municipality_code", ""),
+                    "url": metadata.get("url", ""),
+                    "content_preview": (payload.get("page_content", "")[:300] + "...")
+                    if payload.get("page_content")
+                    else "No content",
+                }
+            )
+
+        return web.json_response(
+            {
+                "collection_name": CANDIDATES_INDEX_NAME,
+                "points_count": collection_info.points_count,
+                "vectors_count": collection_info.vectors_count,
+                "sample_documents": sample_docs,
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error debugging candidates Qdrant: {e}", exc_info=True)
         return web.json_response(
             {"status": "error", "message": str(e)},
             status=500,
