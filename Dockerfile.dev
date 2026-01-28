@@ -6,6 +6,9 @@
 
 FROM python:3.11.3-slim
 
+# Upgrade pip first to avoid corruption issues
+RUN pip install --upgrade pip setuptools wheel
+
 # Install Poetry
 RUN pip install poetry
 

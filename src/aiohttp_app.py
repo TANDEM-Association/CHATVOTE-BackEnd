@@ -19,8 +19,17 @@ from src.firebase_service import aget_party_by_id
 from src.llms import reset_all_rate_limits
 from src.models.assistant import CHATVOTE_ASSISTANT
 from src.services.manifesto_indexer import index_all_parties, index_party_by_id
+from src.services.candidate_indexer import (
+    index_all_candidates,
+    index_candidate_by_id,
+)
 from src.vector_store_helper import qdrant_client, PARTY_INDEX_NAME, embed
-from src.services.firestore_listener import start_parties_listener, is_listener_running
+from src.services.firestore_listener import (
+    start_parties_listener,
+    start_candidates_listener,
+    is_listener_running,
+    is_candidates_listener_running,
+)
 from src.models.chat import Message, Role
 from src.models.dtos import (
     ParliamentaryQuestionDto,
@@ -134,12 +143,73 @@ async def admin_index_party_manifesto(request):
         )
 
 
+@routes.post(f"{route_prefix}/admin/index-all-candidates")
+async def admin_index_all_candidates(request):
+    """
+    Admin endpoint to trigger indexation of all candidate websites.
+
+    This will scrape and index all candidates with a website_url.
+    """
+    logger.info("Admin triggered: indexing all candidate websites")
+
+    try:
+        results = await index_all_candidates()
+        total = sum(results.values())
+        successful = sum(1 for v in results.values() if v > 0)
+
+        return web.json_response(
+            {
+                "status": "success",
+                "message": f"Indexed {total} chunks for {successful}/{len(results)} candidates",
+                "details": results,
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error indexing candidate websites: {e}", exc_info=True)
+        return web.json_response(
+            {"status": "error", "message": str(e)},
+            status=500,
+        )
+
+
+@routes.post(route_prefix + "/admin/index-candidate-website/{candidate_id}")
+async def admin_index_candidate_website(request):
+    """Admin endpoint to trigger indexation of a specific candidate's website."""
+    candidate_id = request.match_info["candidate_id"]
+    logger.info(f"Admin triggered: indexing website for candidate {candidate_id}")
+
+    try:
+        count = await index_candidate_by_id(candidate_id)
+
+        if count > 0:
+            return web.json_response(
+                {
+                    "status": "success",
+                    "message": f"Indexed {count} chunks for candidate {candidate_id}",
+                }
+            )
+        else:
+            return web.json_response(
+                {
+                    "status": "warning",
+                    "message": f"No chunks indexed for candidate {candidate_id}. Check if website URL exists.",
+                }
+            )
+    except Exception as e:
+        logger.error(f"Error indexing website for {candidate_id}: {e}", exc_info=True)
+        return web.json_response(
+            {"status": "error", "message": str(e)},
+            status=500,
+        )
+
+
 @routes.get(f"{route_prefix}/admin/listener-status")
 async def admin_listener_status(request):
-    """Check if the Firestore listener is running."""
+    """Check if the Firestore listeners are running."""
     return web.json_response(
         {
-            "listener_running": is_listener_running(),
+            "parties_listener_running": is_listener_running(),
+            "candidates_listener_running": is_candidates_listener_running(),
         }
     )
 
@@ -395,7 +465,7 @@ for route in list(app.router.routes()):
 sio.attach(app)
 
 
-# Start Firestore listener for automatic manifesto indexation
+# Start Firestore listeners for automatic indexation
 async def on_startup(app):
     """Called when the application starts."""
     # Reset rate limit flag on startup
@@ -406,15 +476,24 @@ async def on_startup(app):
     except Exception as e:
         logger.error(f"Failed to reset rate limit flags: {e}")
 
-    # Start Firestore listener
+    # Get the current event loop for thread-safe async execution
+    event_loop = asyncio.get_running_loop()
+
+    # Start Firestore listener for parties (manifesto indexation)
     logger.info("Starting Firestore parties listener...")
     try:
-        # Pass the current event loop for thread-safe async execution
-        event_loop = asyncio.get_running_loop()
         start_parties_listener(event_loop=event_loop)
         logger.info("Firestore parties listener started successfully")
     except Exception as e:
-        logger.error(f"Failed to start Firestore listener: {e}")
+        logger.error(f"Failed to start Firestore parties listener: {e}")
+
+    # Start Firestore listener for candidates (website indexation)
+    logger.info("Starting Firestore candidates listener...")
+    try:
+        start_candidates_listener(event_loop=event_loop)
+        logger.info("Firestore candidates listener started successfully")
+    except Exception as e:
+        logger.error(f"Failed to start Firestore candidates listener: {e}")
 
 
 app.on_startup.append(on_startup)
