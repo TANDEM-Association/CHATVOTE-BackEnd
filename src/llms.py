@@ -363,7 +363,10 @@ async def get_answer_from_llms(
     llms = sorted(llms, key=lambda x: x.priority, reverse=True)
     back_up_llms = [llm for llm in llms if llm.back_up_only]
     llms = [llm for llm in llms if not llm.back_up_only]
-    for llm in llms:
+
+    logger.debug(f"Available LLMs for answer: {[item.name for item in llms]}")
+
+    for i, llm in enumerate(llms):
         try:
             logger.debug(f"Invoking LLM {llm.name}...")
             response = await llm.model.ainvoke(messages)
@@ -373,19 +376,25 @@ async def get_answer_from_llms(
         except Exception as e:
             logger.warning(f"Error invoking LLM {llm.name}: {e}")
             llm.is_at_rate_limit = True
+            remaining = [item.name for item in llms[i + 1 :]]
+            if remaining:
+                logger.info(f"Falling back to next LLM. Remaining: {remaining}")
             continue
 
     await handle_rate_limit_hit_for_all_llms()
 
+    logger.info(
+        f"All primary LLMs failed, trying backup LLMs: {[item.name for item in back_up_llms]}"
+    )
     for llm in back_up_llms:
         try:
-            logger.debug(f"Invoking LLM {llm.name}...")
+            logger.debug(f"Invoking backup LLM {llm.name}...")
             response = await llm.model.ainvoke(messages)
             llm.is_at_rate_limit = False
             await handle_llm_success()  # Reset Firestore flag on success
             return response
         except Exception as e:
-            logger.warning(f"Error invoking LLM {llm.name}: {e}")
+            logger.warning(f"Error invoking backup LLM {llm.name}: {e}")
             llm.is_at_rate_limit = True
     raise Exception("All LLMs are at rate limit.")
 
@@ -396,9 +405,14 @@ async def get_structured_output_from_llms(
     llms = sorted(llms, key=lambda x: x.priority, reverse=True)
     back_up_llms = [llm for llm in llms if llm.back_up_only]
     llms = [llm for llm in llms if not llm.back_up_only]
-    for llm in llms:
+
+    logger.debug(
+        f"Available LLMs for structured output: {[item.name for item in llms]}"
+    )
+
+    for i, llm in enumerate(llms):
         try:
-            logger.debug(f"Invoking LLM {llm.name}...")
+            logger.debug(f"Invoking LLM {llm.name} for structured output...")
             prepared_model = llm.model.with_structured_output(schema)
             response = await prepared_model.ainvoke(messages)
             llm.is_at_rate_limit = False
@@ -407,20 +421,26 @@ async def get_structured_output_from_llms(
         except Exception as e:
             logger.warning(f"Error invoking LLM {llm.name}: {e}")
             llm.is_at_rate_limit = True
+            remaining = [item.name for item in llms[i + 1 :]]
+            if remaining:
+                logger.info(f"Falling back to next LLM. Remaining: {remaining}")
             continue
 
     await handle_rate_limit_hit_for_all_llms()
 
+    logger.info(
+        f"All primary LLMs failed, trying backup LLMs: {[item.name for item in back_up_llms]}"
+    )
     for llm in back_up_llms:
         try:
-            logger.debug(f"Invoking LLM {llm.name}...")
+            logger.debug(f"Invoking backup LLM {llm.name} for structured output...")
             prepared_model = llm.model.with_structured_output(schema)
             response = await prepared_model.ainvoke(messages)
             llm.is_at_rate_limit = False
             await handle_llm_success()  # Reset Firestore flag on success
             return response
         except Exception as e:
-            logger.warning(f"Error invoking LLM {llm.name}: {e}")
+            logger.warning(f"Error invoking backup LLM {llm.name}: {e}")
             llm.is_at_rate_limit = True
     raise Exception("All LLMs are at rate limit.")
 
@@ -458,25 +478,40 @@ def _sort_llms_by_size_preference(
         raise ValueError(f"Invalid preferred LLM size: {preferred_llm_size}")
 
 
+class StreamResetMarker:
+    """
+    Special marker yielded by stream_answer_from_llms when a mid-stream fallback occurs.
+    Callers should check for this marker and reset their state (clear accumulated response).
+    """
+
+    def __init__(self, reason: str, new_llm_name: str):
+        self.reason = reason
+        self.new_llm_name = new_llm_name
+
+
 async def stream_answer_from_llms(
     llms: list[LLM],
     messages: list[BaseMessage],
     preferred_llm_size: LLMSize = LLMSize.LARGE,
     use_premium_llms: bool = False,
-) -> AsyncIterator[BaseMessageChunk]:
+) -> AsyncIterator[BaseMessageChunk | StreamResetMarker]:
     """
     Stream answer from LLMs with automatic fallback on rate limit errors.
 
     This function handles errors that occur DURING streaming (mid-stream),
     not just at initialization. If a rate limit error occurs while streaming,
     it automatically switches to the next available LLM and continues.
+
+    IMPORTANT: When a mid-stream fallback occurs, a StreamResetMarker is yielded
+    BEFORE the new LLM starts streaming. Callers should check for this marker
+    and reset their accumulated response state.
     """
     logger.debug(f"Preferred LLM size: {preferred_llm_size}")
     sorted_llms = _sort_llms_by_size_preference(
         llms, preferred_llm_size, use_premium_llms
     )
 
-    async def resilient_stream() -> AsyncIterator[BaseMessageChunk]:
+    async def resilient_stream() -> AsyncIterator[BaseMessageChunk | StreamResetMarker]:
         """Generator that handles mid-stream errors and falls back to next LLM."""
         llm_index = 0
         chunks_yielded = 0
@@ -509,6 +544,18 @@ async def stream_answer_from_llms(
                         f"Error with LLM {llm.name} after {chunks_yielded} chunks: {e}. "
                         f"Falling back to {next_llm.name}..."
                     )
+
+                    # Yield a reset marker if we had already yielded chunks
+                    # This signals the caller to clear accumulated response
+                    if chunks_yielded > 0:
+                        logger.info(
+                            f"Yielding reset marker (had {chunks_yielded} chunks from {llm.name})"
+                        )
+                        yield StreamResetMarker(
+                            reason=f"Rate limit on {llm.name}",
+                            new_llm_name=next_llm.name,
+                        )
+
                     # Reset chunk counter for new LLM (we restart the full response)
                     chunks_yielded = 0
                 else:

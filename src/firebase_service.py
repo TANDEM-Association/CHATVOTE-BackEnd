@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
 import os
-from typing import Optional
+from typing import List, Optional
 import firebase_admin
 from firebase_admin import firestore, credentials, firestore_async
 from pathlib import Path
 
+from src.models.candidate import Candidate
 from src.models.chat import CachedResponse
 from src.models.party import Party
 from src.utils import load_env
@@ -72,3 +73,52 @@ async def awrite_cached_answer_for_party(
 async def awrite_llm_status(is_at_rate_limit: bool) -> None:
     llm_status_ref = async_db.collection("system_status").document("llm_status")
     await llm_status_ref.set({"is_at_rate_limit": is_at_rate_limit})
+
+
+# ==================== Candidate Functions ====================
+
+
+async def aget_candidates() -> List[Candidate]:
+    """Get all candidates from Firestore."""
+    candidates = async_db.collection("candidates").stream()
+    return [Candidate(**candidate.to_dict()) async for candidate in candidates]
+
+
+async def aget_candidates_by_municipality(municipality_code: str) -> List[Candidate]:
+    """Get all candidates for a specific municipality by its INSEE code."""
+    candidates = (
+        async_db.collection("candidates")
+        .where("municipality_code", "==", municipality_code)
+        .stream()
+    )
+    return [Candidate(**candidate.to_dict()) async for candidate in candidates]
+
+
+async def aget_candidate_by_id(candidate_id: str) -> Optional[Candidate]:
+    """Get a specific candidate by their ID."""
+    candidate_ref = async_db.collection("candidates").document(candidate_id)
+    candidate = await candidate_ref.get()
+    if candidate.exists:
+        return Candidate(**candidate.to_dict())
+    return None
+
+
+async def aget_candidates_with_website() -> List[Candidate]:
+    """Get all candidates that have a website URL defined."""
+    candidates = async_db.collection("candidates").stream()
+    result = []
+    async for candidate in candidates:
+        candidate_data = candidate.to_dict()
+        if candidate_data.get("website_url"):
+            result.append(Candidate(**candidate_data))
+    return result
+
+
+async def aget_candidates_by_election_type(election_type_id: str) -> List[Candidate]:
+    """Get all candidates for a specific election type."""
+    candidates = (
+        async_db.collection("candidates")
+        .where("election_type_id", "==", election_type_id)
+        .stream()
+    )
+    return [Candidate(**candidate.to_dict()) async for candidate in candidates]

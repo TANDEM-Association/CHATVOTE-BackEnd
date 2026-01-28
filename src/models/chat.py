@@ -69,6 +69,14 @@ class GroupChatSession(BaseModel):
     is_cacheable: bool = Field(
         description="Whether the chat history is cacheable or not", default=True
     )
+    scope: str = Field(
+        description="The geographic scope of the chat session (national or local)",
+        default="national",
+    )
+    municipality_code: Optional[str] = Field(
+        description="The INSEE code of the municipality. Required when scope is 'local'.",
+        default=None,
+    )
 
 
 class CachedResponse(BaseModel):

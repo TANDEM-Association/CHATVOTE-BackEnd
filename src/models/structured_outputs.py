@@ -69,3 +69,27 @@ class RerankingOutput(BaseModel):
     reranked_doc_indices: list[int] = Field(
         description="List of document indices sorted by decreasing usefulness."
     )
+
+
+class EntityDetector(BaseModel):
+    """Detection of parties and candidates mentioned in user message."""
+
+    party_ids: list[str] = Field(
+        description="List of party IDs mentioned by the user (e.g., 'lr', 'ps', 'europe-ecologie-les-verts'). "
+        "Empty list if no party is mentioned."
+    )
+    candidate_ids: list[str] = Field(
+        description="List of candidate IDs mentioned by the user (e.g., 'cand-paris-001'). "
+        "Empty list if no candidate is mentioned."
+    )
+    needs_clarification: bool = Field(
+        description="True if the question is too general and requires the user to specify a party or candidate. "
+        "False if at least one party or candidate is mentioned or can be inferred."
+    )
+    clarification_message: str = Field(
+        description="Message to display if needs_clarification is True, asking the user to specify a party or candidate. "
+        "Empty string if needs_clarification is False."
+    )
+    reformulated_question: str = Field(
+        description="The user's question reformulated in a general way, as if addressed to a party/candidate."
+    )

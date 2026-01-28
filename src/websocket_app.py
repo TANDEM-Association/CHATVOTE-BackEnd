@@ -27,18 +27,25 @@ from src.chatbot_async import (
     generate_chat_summary,
     generate_streaming_chatbot_comparing_response,
     generate_party_vote_behavior_summary,
+    # Candidate-specific functions
+    generate_streaming_global_combined_response,
 )
+from src.llms import StreamResetMarker
 from src.firebase_service import (
     aget_cached_answers_for_party,
     aget_parties,
     aget_party_by_id,
     aget_proposed_questions_for_party,
     awrite_cached_answer_for_party,
+    # Candidate functions
+    aget_candidates_by_municipality,
+    aget_candidates,
 )
 from src.models.chat import CachedResponse, GroupChatSession, Message, Role
 from src.models.dtos import (
     ChatResponseCompleteDto,
     ChatSessionInitializedDto,
+    ChatScope,
     PartyResponseChunkDto,
     PartyResponseCompleteDto,
     ChatUserMessageDto,
@@ -59,6 +66,7 @@ from src.models.dtos import (
     VotingBehaviorVoteDto,
     ChatVoteSwiperResponseCompleteDto,
     ChatVoteSwiperUserMessageDto,
+    StreamResetDto,
 )
 
 from src.models.party import Party
@@ -67,6 +75,8 @@ from src.chatbot_async import Responder
 from src.vector_store_helper import (
     identify_relevant_votes,
     identify_relevant_docs_with_llm_based_reranking,
+    # Candidate document search
+    identify_relevant_docs_combined,
 )
 from src.utils import (
     build_chat_history_string,
@@ -146,6 +156,8 @@ async def init_chat_session(sid: str, body: dict):
         chat_response_llm_size=create_session_dto.chat_response_llm_size,
         last_quick_replies=create_session_dto.last_quick_replies,
         is_cacheable=create_session_dto.is_cacheable,
+        scope=create_session_dto.scope.value,
+        municipality_code=create_session_dto.municipality_code,
     )
 
     async with sio.session(sid) as session:
@@ -543,6 +555,25 @@ async def fetch_and_emit_response(
 
         chunk_index = 0
         async for message_chunk in chunk_stream:
+            # Check if this is a reset marker (LLM fallback occurred)
+            if isinstance(message_chunk, StreamResetMarker):
+                logger.info(
+                    f"Stream reset marker received for {responder.party_id}: {message_chunk.reason}. "
+                    f"Notifying frontend to clear partial response."
+                )
+                # Emit reset event to frontend
+                reset_dto = StreamResetDto(
+                    session_id=group_chat_session.session_id,
+                    party_id=responder.party_id,
+                    reason=message_chunk.reason,
+                )
+                await sio.emit("stream_reset", reset_dto.model_dump(), to=sid)
+
+                # Reset our state for the new LLM's response
+                full_response = None
+                chunk_index = 0
+                continue
+
             if full_response is None:
                 full_response = message_chunk
             else:
@@ -703,6 +734,308 @@ async def process_party(
         relevant_doc_dict[party.party_id] = relevant_docs
 
 
+async def handle_combined_answer_request(
+    sid: str,
+    chat_message_data: ChatUserMessageDto,
+    chat_session: GroupChatSession,
+    chat_history: List[Message],
+    user_message: Message,
+    all_parties: List[Party],
+    all_candidates: list,
+):
+    """
+    Handle chat answer request using combined manifesto + candidate website search.
+
+    Simplified unified flow:
+    - NATIONAL: Search ALL party manifestos + ALL candidate websites
+    - LOCAL: Search ALL party manifestos + candidate websites filtered by municipality_code
+
+    No entity detection needed - we always search all available data.
+    """
+    is_local_scope = chat_session.scope == ChatScope.LOCAL.value
+    municipality_code = chat_session.municipality_code
+
+    logger.info(
+        f"Processing combined answer request for client {sid} "
+        f"(scope={chat_session.scope}, municipality={municipality_code})"
+    )
+
+    # Build conversation history string
+    chat_history_without_last_user_message = chat_history[:-1]
+    chat_history_str = build_chat_history_string(
+        chat_history_without_last_user_message, all_parties
+    )
+
+    # Always use ChatVote assistant as responder for combined searches
+    responder_id = "chat-vote"
+    responding_parties_dto = RespondingPartiesDto(
+        session_id=chat_message_data.session_id,
+        party_ids=[responder_id],
+    )
+    await sio.emit(
+        "responding_parties_selected",
+        responding_parties_dto.model_dump(),
+        to=sid,
+    )
+
+    # Use user message directly as RAG query (will be improved internally)
+    improved_rag_query = user_message.content
+
+    # For LOCAL scope, get the list of candidates in the municipality
+    # This is important to KNOW which candidates exist, even if their websites aren't indexed
+    local_candidates: List = []
+    municipality_name = ""
+    if is_local_scope and municipality_code is not None:
+        local_candidates = await aget_candidates_by_municipality(municipality_code)
+        if local_candidates:
+            municipality_name = local_candidates[0].municipality_name or ""
+        logger.info(
+            f"Found {len(local_candidates)} candidates in municipality {municipality_code} ({municipality_name})"
+        )
+
+    # For LOCAL scope: search parties associated with local candidates + their manifestos
+    # For NATIONAL scope: search all parties
+    if is_local_scope and local_candidates:
+        # Get unique party IDs from local candidates
+        local_party_ids = set()
+        for candidate in local_candidates:
+            for pid in candidate.party_ids:
+                local_party_ids.add(pid)
+        # Convert to list and ensure we have parties
+        party_ids_to_search = list(local_party_ids)
+        logger.info(f"LOCAL scope - searching parties: {party_ids_to_search}")
+    else:
+        # NATIONAL scope - search all parties
+        party_ids_to_search = [p.party_id for p in all_parties]
+
+    # Perform combined search
+    manifesto_docs, candidate_docs = await identify_relevant_docs_combined(
+        rag_query=improved_rag_query,
+        chat_history=chat_history_str,
+        user_message=user_message.content,
+        party_ids=party_ids_to_search,
+        candidate_ids=[],  # Empty - we search by party affiliation, not specific candidates
+        scope=chat_session.scope,
+        municipality_code=municipality_code,
+    )
+
+    logger.info(
+        f"Combined search found {len(manifesto_docs)} manifesto docs "
+        f"and {len(candidate_docs)} candidate docs"
+    )
+
+    # Build sources from both doc types
+    sources = []
+
+    # Add manifesto sources
+    for source_doc in manifesto_docs:
+        page_raw = source_doc.metadata.get("page", 0)
+        page_number = int(page_raw if page_raw is not None else 0) + 1
+
+        content_preview = source_doc.page_content[:80].replace("\n", " ").strip()
+        if len(source_doc.page_content) > 80:
+            content_preview += "..."
+
+        source = {
+            "source": source_doc.metadata.get("document_name", "Programme"),
+            "page": page_number,
+            "content_preview": content_preview,
+            "url": source_doc.metadata.get("url"),
+            "source_type": "manifesto",
+            "party_id": source_doc.metadata.get("namespace"),
+        }
+        sources.append(source)
+
+    # Add candidate sources
+    for source_doc in candidate_docs:
+        page_raw = source_doc.metadata.get("page", 0)
+        page_number = int(page_raw if page_raw is not None else 0) + 1
+
+        content_preview = source_doc.page_content[:80].replace("\n", " ").strip()
+        if len(source_doc.page_content) > 80:
+            content_preview += "..."
+
+        source = {
+            "source": source_doc.metadata.get("document_name", "Site candidat"),
+            "page": page_number,
+            "content_preview": content_preview,
+            "url": source_doc.metadata.get("url"),
+            "source_type": "candidate",
+            "candidate_name": source_doc.metadata.get("candidate_name"),
+            "municipality_name": source_doc.metadata.get("municipality_name"),
+        }
+        sources.append(source)
+
+    sources_dto = SourcesDto(
+        session_id=chat_session.session_id,
+        party_id=responder_id,
+        rag_query=[improved_rag_query],
+        sources=sources,
+    )
+    await sio.emit("sources_ready", sources_dto.model_dump(), to=sid)
+
+    # Generate streaming response using all available context
+    try:
+        # Generate a comprehensive response using all manifesto and candidate data
+        chunk_stream = await generate_streaming_global_combined_response(
+            conversation_history=chat_history_str,
+            user_message=user_message.content,
+            manifesto_docs=manifesto_docs,
+            candidate_docs=candidate_docs,
+            all_parties=all_parties,
+            scope=chat_session.scope,
+            municipality_name=municipality_name,
+            local_candidates=local_candidates,  # Pass local candidates to include in prompt
+            chat_response_llm_size=chat_session.chat_response_llm_size,
+            use_premium_llms=chat_message_data.user_is_logged_in,
+        )
+
+        # Stream the response
+        full_response: Optional[BaseMessageChunk] = None
+        chunk_index = 0
+        async for message_chunk in chunk_stream:
+            # Check if this is a reset marker (LLM fallback occurred)
+            if isinstance(message_chunk, StreamResetMarker):
+                logger.info(
+                    f"Stream reset marker received: {message_chunk.reason}. "
+                    f"Notifying frontend to clear partial response."
+                )
+                # Emit reset event to frontend
+                reset_dto = StreamResetDto(
+                    session_id=chat_session.session_id,
+                    party_id=responder_id,
+                    reason=message_chunk.reason,
+                )
+                await sio.emit("stream_reset", reset_dto.model_dump(), to=sid)
+
+                # Reset our state for the new LLM's response
+                full_response = None
+                chunk_index = 0
+                continue
+
+            if full_response is None:
+                full_response = message_chunk
+            else:
+                full_response += message_chunk
+
+            for i in range(0, len(message_chunk.content), MAX_RESPONSE_CHUNK_LENGTH):
+                if i > 0:
+                    await asyncio.sleep(0.025)
+                chunk_content = message_chunk.content[i : i + MAX_RESPONSE_CHUNK_LENGTH]
+                chat_response_dto = PartyResponseChunkDto(
+                    session_id=chat_session.session_id,
+                    party_id=responder_id,
+                    chunk_index=chunk_index,
+                    chunk_content=chunk_content,
+                    is_end=False,
+                )
+                await sio.emit(
+                    "party_response_chunk_ready", chat_response_dto.model_dump(), to=sid
+                )
+                chunk_index += 1
+
+        # Emit finalizing chunk
+        chat_response_dto = PartyResponseChunkDto(
+            session_id=chat_session.session_id,
+            party_id=responder_id,
+            chunk_index=chunk_index,
+            chunk_content="",
+            is_end=True,
+        )
+        await sio.emit(
+            "party_response_chunk_ready", chat_response_dto.model_dump(), to=sid
+        )
+
+        # Build full content
+        if full_response is None:
+            full_content = ""
+        else:
+            full_content = (
+                str(full_response.content)
+                if isinstance(full_response.content, list)
+                else full_response.content
+            )
+
+        full_content = sanitize_references(full_content)
+
+        # Store message in chat history
+        chatbot_message = Message(
+            role="assistant",
+            content=full_content,
+            sources=sources,
+            party_id=responder_id,
+            current_chat_title=chat_session.title,
+            quick_replies=[],
+            rag_query=[improved_rag_query],
+        )
+        chat_session.chat_history.append(chatbot_message)
+
+        # Emit response complete
+        response_complete_dto = PartyResponseCompleteDto(
+            session_id=chat_session.session_id,
+            party_id=responder_id,
+            complete_message=full_content,
+            status=Status(indicator=StatusIndicator.SUCCESS, message="Success"),
+        )
+        await sio.emit(
+            "party_response_complete", response_complete_dto.model_dump(), to=sid
+        )
+
+    except Exception as e:
+        logger.error(f"Error generating combined response: {e}", exc_info=True)
+        response_complete_dto = PartyResponseCompleteDto(
+            session_id=chat_session.session_id,
+            party_id=responder_id,
+            complete_message="Désolé, une erreur s'est produite. Veuillez réessayer plus tard.",
+            status=Status(indicator=StatusIndicator.ERROR, message=str(e)),
+        )
+        await sio.emit(
+            "party_response_complete", response_complete_dto.model_dump(), to=sid
+        )
+        return
+
+    # Generate quick replies and title
+    full_conversation_history_str = build_chat_history_string(chat_history, all_parties)
+    try:
+        chat_title_and_quick_replies = await generate_chat_title_and_chick_replies(
+            chat_history_str=full_conversation_history_str,
+            chat_title=chat_session.title or "Discussion politique",
+            parties_in_chat=all_parties,  # All parties are potentially relevant
+            chatvote_assistant_last_responded=True,  # ChatVote assistant responds for combined
+            is_comparing=True,  # Always comparing when searching all parties
+        )
+    except Exception as e:
+        logger.error(f"Error generating title and quick replies: {e}", exc_info=True)
+        chat_title_and_quick_replies = type(
+            "MockResponse",
+            (),
+            {"quick_replies": [], "chat_title": chat_session.title or "Discussion"},
+        )()
+
+    quick_replies_and_title_dto = QuickRepliesAndTitleDto(
+        session_id=chat_session.session_id,
+        quick_replies=chat_title_and_quick_replies.quick_replies,
+        title=chat_title_and_quick_replies.chat_title,
+    )
+    await sio.emit(
+        "quick_replies_and_title_ready",
+        quick_replies_and_title_dto.model_dump(),
+        to=sid,
+    )
+    chat_session.last_quick_replies = chat_title_and_quick_replies.quick_replies
+
+    # Final complete event
+    chat_response_complete_dto = ChatResponseCompleteDto(
+        session_id=chat_session.session_id,
+        status=Status(indicator=StatusIndicator.SUCCESS, message="Success"),
+    )
+    await sio.emit(
+        "chat_response_complete",
+        chat_response_complete_dto.model_dump(),
+        to=sid,
+    )
+
+
 @sio.on("chat_answer_request")
 async def chat_answer_request(sid: str, body: dict):
     logger.info(f"Client {sid} requested chat answer with body: {body}")
@@ -780,7 +1113,26 @@ async def chat_answer_request(sid: str, body: dict):
         )
         return
 
+    # Get all parties and candidates
     all_parties = await aget_parties()
+    all_candidates = await aget_candidates()
+
+    # Route based on scope: combined (national/local) vs legacy party-only mode
+    # The new scopes (NATIONAL, LOCAL) use combined manifesto + candidate search
+    if chat_session.scope in (ChatScope.NATIONAL.value, ChatScope.LOCAL.value):
+        # Handle combined scope (manifestos + candidate websites)
+        await handle_combined_answer_request(
+            sid=sid,
+            chat_message_data=chat_message_data,
+            chat_session=chat_session,
+            chat_history=chat_history,
+            user_message=user_message,
+            all_parties=all_parties,
+            all_candidates=all_candidates,
+        )
+        return
+
+    # Fallback: Legacy party-only scope - continue with existing logic
     pre_selected_parties = [
         party for party in all_parties if party.party_id in chat_message_data.party_ids
     ]

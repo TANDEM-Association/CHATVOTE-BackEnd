@@ -43,6 +43,15 @@ class StatusIndicator(str, enum.Enum):
     SUCCESS = "success"
 
 
+class ChatScope(str, enum.Enum):
+    """Defines the geographic scope of the chat session."""
+
+    NATIONAL = "national"  # Search in all manifestos + all candidate websites
+    LOCAL = (
+        "local"  # Search in manifestos + candidate websites filtered by municipality
+    )
+
+
 class Status(BaseModel):
     indicator: StatusIndicator = Field(..., description="The status of the event")
     message: str = Field(..., description="The message")
@@ -61,6 +70,14 @@ class InitChatSessionDto(BaseModel):
     )
     is_cacheable: bool = Field(
         description="Whether the chat history is cacheable or not", default=True
+    )
+    scope: ChatScope = Field(
+        description="The geographic scope of the chat session (national or local)",
+        default=ChatScope.NATIONAL,
+    )
+    municipality_code: Optional[str] = Field(
+        description="The INSEE code of the municipality. Required when scope is LOCAL.",
+        default=None,
     )
 
 
@@ -167,6 +184,14 @@ class ChatUserMessageDto(BaseModel):
     user_is_logged_in: bool = Field(
         description="Whether the user is logged in or not", default=False
     )
+    scope: ChatScope = Field(
+        description="The geographic scope of the chat (national or local)",
+        default=ChatScope.NATIONAL,
+    )
+    municipality_code: Optional[str] = Field(
+        description="The INSEE code of the municipality. Required when scope is LOCAL.",
+        default=None,
+    )
 
     @field_validator("session_id")
     def session_id_must_not_be_empty(cls, value):
@@ -217,6 +242,21 @@ class PartyResponseChunkDto(BaseModel):
     chunk_content: str = Field(..., description="The message content")
     is_end: bool = Field(
         ..., description="Whether this is the last chunk of the response"
+    )
+
+
+class StreamResetDto(BaseModel):
+    """Emitted when the LLM stream has to restart due to a fallback (e.g., rate limit).
+
+    When this event is received, the frontend should clear the current partial response
+    and prepare to receive a new complete response from the fallback LLM.
+    """
+
+    session_id: str = Field(..., description="The ID of the chat session")
+    party_id: Optional[str] = Field(..., description="The ID of the party/responder")
+    reason: str = Field(
+        ...,
+        description="The reason for the reset (e.g., 'Rate limit on google-gemini-2.0-flash')",
     )
 
 
