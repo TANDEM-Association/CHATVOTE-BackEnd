@@ -40,8 +40,8 @@ WORKDIR /app
 # Configure poetry to not create virtual env (use system python)
 RUN poetry config virtualenvs.create false
 
-# Install dependencies
-RUN poetry install --no-root --no-dev
+# Install dependencies (production only)
+RUN poetry install --no-root --only main
 
 # Install Playwright browsers (Chromium only for smaller image)
 RUN playwright install chromium
