@@ -280,34 +280,6 @@ class ChatResponseCompleteDto(BaseModel):
     status: Status = Field(..., description="The status of the event")
 
 
-class ChatVoteSwiperUserMessageDto(BaseModel):
-    session_id: str = Field(
-        ..., description="The ID of the chat session to which the message belongs"
-    )
-    user_message: str = Field(
-        ..., description="The user message to answer", max_length=500
-    )
-    current_political_question: str = Field(
-        ...,
-        description="The current ChatVote Swiper question which the user is answering",
-    )
-
-    @field_validator("session_id")
-    def session_id_must_not_be_empty(cls, value):
-        if not value.strip():  # Check for empty or whitespace-only strings
-            raise ValidationError("Session ID cannot be empty or whitespace.")
-        return value
-
-
-class ChatVoteSwiperResponseCompleteDto(BaseModel):
-    session_id: Optional[str] = Field(
-        ...,
-        description="The ID of the chat session to which the message belongs if applicable",
-    )
-    complete_message: Message = Field(..., description="The message including sources")
-    status: Status = Field(..., description="The status of the event")
-
-
 class QuickRepliesAndTitleDto(BaseModel):
     session_id: str = Field(
         ..., description="The ID of the chat session to which the message belongs"
@@ -323,25 +295,3 @@ class RequestSummaryDto(BaseModel):
 class SummaryDto(BaseModel):
     chat_summary: str = Field(..., description="The chat summary")
     status: Status = Field(..., description="The status of the event")
-
-
-class ChatVoteSwiperAnswerRequestDto(BaseModel):
-    chat_history: List[Message] = Field(..., description="The chat history")
-    current_title: str = Field(..., description="The current chat title")
-    user_message: str = Field(
-        ..., description="The user message to answer", max_length=500
-    )
-    current_political_question: str = Field(
-        ...,
-        description="The current ChatVote Swiper question which the user is answering",
-    )
-    chat_response_llm_size: LLMSize = Field(
-        description="The size of the LLM model to use for chat response generation",
-        default=LLMSize.LARGE,
-    )
-
-
-class ChatVoteSwiperAnswerDto(BaseModel):
-    message: Message = Field(..., description="The message including sources")
-    title: str = Field(..., description="The new title of the chat session")
-    quick_replies: List[str] = Field(..., description="The quick replies for the user")

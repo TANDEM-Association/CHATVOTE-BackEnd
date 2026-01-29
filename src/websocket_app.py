@@ -18,7 +18,6 @@ from pydantic import ValidationError
 
 from src.chatbot_async import (
     generate_chat_title_and_chick_replies,
-    generate_swiper_assistant_response,
     get_improved_rag_query_voting_behavior,
     get_question_targets_and_type,
     generate_pro_con_perspective,
@@ -64,8 +63,6 @@ from src.models.dtos import (
     Vote,
     VotingBehaviorSummaryChunkDto,
     VotingBehaviorVoteDto,
-    ChatVoteSwiperResponseCompleteDto,
-    ChatVoteSwiperUserMessageDto,
     StreamResetDto,
 )
 
@@ -746,18 +743,25 @@ async def handle_combined_answer_request(
     """
     Handle chat answer request using combined manifesto + candidate website search.
 
-    Simplified unified flow:
-    - NATIONAL: Search ALL party manifestos + ALL candidate websites
-    - LOCAL: Search ALL party manifestos + candidate websites filtered by municipality_code
-
-    No entity detection needed - we always search all available data.
+    Flow:
+    - If specific party_ids are selected: Focus on those parties only
+    - NATIONAL (no specific party): Search ALL party manifestos + ALL candidate websites
+    - LOCAL (no specific party): Search ALL party manifestos + candidate websites filtered by municipality_code
     """
     is_local_scope = chat_session.scope == ChatScope.LOCAL.value
     municipality_code = chat_session.municipality_code
 
+    # Check if user has selected specific parties (not just "chat-vote" or empty)
+    selected_party_ids = [
+        pid
+        for pid in chat_message_data.party_ids
+        if pid and pid != "chat-vote" and pid != ASSISTANT_ID
+    ]
+    has_specific_parties = len(selected_party_ids) > 0
+
     logger.info(
-        f"Processing combined answer request for client {sid} "
-        f"(scope={chat_session.scope}, municipality={municipality_code})"
+        f"Chat request: scope={chat_session.scope}, "
+        f"parties={selected_party_ids if has_specific_parties else 'all'}"
     )
 
     # Build conversation history string
@@ -766,8 +770,12 @@ async def handle_combined_answer_request(
         chat_history_without_last_user_message, all_parties
     )
 
-    # Always use ChatVote assistant as responder for combined searches
-    responder_id = "chat-vote"
+    # Determine responder: use selected party if single, otherwise ChatVote
+    if has_specific_parties and len(selected_party_ids) == 1:
+        responder_id = selected_party_ids[0]
+    else:
+        responder_id = "chat-vote"
+
     responding_parties_dto = RespondingPartiesDto(
         session_id=chat_message_data.session_id,
         party_ids=[responder_id],
@@ -789,23 +797,20 @@ async def handle_combined_answer_request(
         local_candidates = await aget_candidates_by_municipality(municipality_code)
         if local_candidates:
             municipality_name = local_candidates[0].municipality_name or ""
-        logger.info(
-            f"Found {len(local_candidates)} candidates in municipality {municipality_code} ({municipality_name})"
-        )
 
-    # For LOCAL scope: search parties associated with local candidates + their manifestos
-    # For NATIONAL scope: search all parties
-    if is_local_scope and local_candidates:
-        # Get unique party IDs from local candidates
+    # Determine which parties to search
+    if has_specific_parties:
+        # User selected specific parties - focus on those only
+        party_ids_to_search = selected_party_ids
+    elif is_local_scope and local_candidates:
+        # LOCAL scope without specific party - search parties associated with local candidates
         local_party_ids = set()
         for candidate in local_candidates:
             for pid in candidate.party_ids:
                 local_party_ids.add(pid)
-        # Convert to list and ensure we have parties
         party_ids_to_search = list(local_party_ids)
-        logger.info(f"LOCAL scope - searching parties: {party_ids_to_search}")
     else:
-        # NATIONAL scope - search all parties
+        # NATIONAL scope without specific party - search all parties
         party_ids_to_search = [p.party_id for p in all_parties]
 
     # Perform combined search
@@ -819,9 +824,8 @@ async def handle_combined_answer_request(
         municipality_code=municipality_code,
     )
 
-    logger.info(
-        f"Combined search found {len(manifesto_docs)} manifesto docs "
-        f"and {len(candidate_docs)} candidate docs"
+    logger.debug(
+        f"RAG: {len(manifesto_docs)} manifesto + {len(candidate_docs)} candidate docs"
     )
 
     # Build sources from both doc types
@@ -876,18 +880,30 @@ async def handle_combined_answer_request(
 
     # Generate streaming response using all available context
     try:
+        # Filter parties for the response context
+        # If specific parties are selected, only include those in the response
+        parties_for_response = all_parties
+        if has_specific_parties:
+            parties_for_response = [
+                p for p in all_parties if p.party_id in selected_party_ids
+            ]
+            logger.info(
+                f"Generating response focused on parties: {[p.name for p in parties_for_response]}"
+            )
+
         # Generate a comprehensive response using all manifesto and candidate data
         chunk_stream = await generate_streaming_global_combined_response(
             conversation_history=chat_history_str,
             user_message=user_message.content,
             manifesto_docs=manifesto_docs,
             candidate_docs=candidate_docs,
-            all_parties=all_parties,
+            all_parties=parties_for_response,
             scope=chat_session.scope,
             municipality_name=municipality_name,
             local_candidates=local_candidates,  # Pass local candidates to include in prompt
             chat_response_llm_size=chat_session.chat_response_llm_size,
             use_premium_llms=chat_message_data.user_is_logged_in,
+            is_single_party_focus=has_specific_parties,
         )
 
         # Stream the response
@@ -1580,155 +1596,3 @@ async def mock_websocket_usage(sid: str, body: dict):
 
     # mock emitting of party response complete
     await sio.emit("mock_response_complete", {"message": "Success"}, to=sid)
-
-
-@sio.on("swiper_assistant_session_init")
-async def init_swiper_assistant_session(sid: str, body: dict):
-    logger.debug(
-        f"Client {sid} requested chatvote-swiper session initialization with body: {body}"
-    )
-    try:
-        init_chat_session_dto = InitChatSessionDto(**body)
-    except ValidationError as e:
-        logger.error(
-            f"Error validating chatvote-swiper session initialization request for client {sid}: {e}"
-        )
-        chat_session_initialized_dto = ChatSessionInitializedDto(
-            session_id=None,
-            status=Status(indicator=StatusIndicator.ERROR, message=str(e)),
-        )
-        await sio.emit(
-            "swiper_assistant_session_initialized",
-            chat_session_initialized_dto.model_dump(),
-            to=sid,
-        )
-        return
-
-    logger.debug(f"Creating chatvote-swiper session: {init_chat_session_dto}")
-
-    chat_session = GroupChatSession(
-        session_id=init_chat_session_dto.session_id,
-        title=init_chat_session_dto.current_title,
-        chat_history=init_chat_session_dto.chat_history,
-        chat_response_llm_size=init_chat_session_dto.chat_response_llm_size,
-    )
-
-    async with sio.session(sid) as session:
-        session["swiper_assistant_sessions"] = session.get(
-            "swiper_assistant_sessions", {}
-        )
-        session["swiper_assistant_sessions"][chat_session.session_id] = chat_session
-
-    logger.debug(f"Chat session initialized for client {sid}")
-    chat_session_initialized_dto = ChatSessionInitializedDto(
-        session_id=init_chat_session_dto.session_id,
-        status=Status(indicator=StatusIndicator.SUCCESS, message="Success"),
-    )
-
-    await sio.emit(
-        "swiper_assistant_session_initialized",
-        chat_session_initialized_dto.model_dump(),
-        to=sid,
-    )
-
-
-@sio.on("swiper_assistant_answer_request")
-async def swiper_assistant_answer_request(sid: str, body: dict):
-    logger.debug(f"Client {sid} requested chatvote-swiper answer with body: {body}")
-
-    try:
-        chat_message_data = ChatVoteSwiperUserMessageDto(**body)
-    except ValidationError as e:
-        logger.error(
-            f"Error validating chatvote-swiper message data for client {sid}: {e}"
-        )
-        chat_response_complete_dto = ChatVoteSwiperResponseCompleteDto(
-            session_id=None,
-            complete_message=Message(
-                role=Role.ASSISTANT,
-                content="Désolé, une erreur s'est produite. Veuillez réessayer plus tard.",
-                sources=[],
-            ),
-            status=Status(
-                indicator=StatusIndicator.ERROR,
-                message=str(e),
-            ),
-        )
-        await sio.emit(
-            "swiper_assistant_response_complete",
-            chat_response_complete_dto.model_dump(),
-            to=sid,
-        )
-        return
-
-    logger.debug(f"ChatVote Swiper message data: {chat_message_data}")
-
-    # Extract user message
-    user_message = Message(
-        role="user",
-        content=chat_message_data.user_message,
-    )
-
-    # Access chat session from socket session
-    try:
-        async with sio.session(sid) as session:
-            chat_session: GroupChatSession = session.get(
-                "swiper_assistant_sessions", {}
-            ).get(chat_message_data.session_id)
-
-            # Update session with user message
-            chat_history = chat_session.chat_history
-            # Append the user message if it not identical to the last message
-            if (
-                len(chat_history) == 0
-                or chat_history[-1].content != user_message.content
-            ):
-                chat_history.append(user_message)
-    except Exception as e:
-        logger.error(
-            f"Error accessing chatvote-swiper session for client {sid}: {e}",
-            exc_info=True,
-        )
-        chat_response_complete_dto = ChatVoteSwiperResponseCompleteDto(
-            session_id=chat_message_data.session_id,
-            complete_message=Message(
-                role=Role.ASSISTANT,
-                content="Désolé, une erreur s'est produite. Veuillez réessayer plus tard.",
-                sources=[],
-            ),
-            status=Status(
-                indicator=StatusIndicator.ERROR,
-                message="It seems like the chat session has not been started",
-            ),
-        )
-        await sio.emit(
-            "swiper_assistant_response_complete",
-            chat_response_complete_dto.model_dump(),
-            to=sid,
-        )
-        return
-
-    chat_history_without_last_user_message = chat_history[:-1]
-    chat_history_str = build_chat_history_string(
-        chat_history_without_last_user_message, []
-    )
-
-    swiper_assistant_response = await generate_swiper_assistant_response(
-        current_political_question=chat_message_data.current_political_question,
-        conversation_history=chat_history_str,
-        user_message=chat_message_data.user_message,
-        chat_response_llm_size=chat_session.chat_response_llm_size,
-    )
-
-    chat_session.chat_history.append(swiper_assistant_response)
-
-    chat_response_complete_dto = ChatVoteSwiperResponseCompleteDto(
-        session_id=chat_message_data.session_id,
-        complete_message=swiper_assistant_response,
-        status=Status(indicator=StatusIndicator.SUCCESS, message="Success"),
-    )
-    await sio.emit(
-        "swiper_assistant_response_complete",
-        chat_response_complete_dto.model_dump(),
-        to=sid,
-    )

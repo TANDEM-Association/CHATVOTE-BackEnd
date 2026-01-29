@@ -3,14 +3,12 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "import:all": "npm run import:parties && npm run import:questions && npm run import:swiper-theses && npm run import:municipalities",
-    "import:all:clean": "npm run import:parties:clean && npm run import:questions:clean && npm run import:swiper-theses:clean && npm run import:municipalities:clean",
+    "import:all": "npm run import:parties && npm run import:questions && npm run import:municipalities",
+    "import:all:clean": "npm run import:parties:clean && npm run import:questions:clean && npm run import:municipalities:clean",
     "import:parties": "node import-firestore.js parties ../firebase/firestore_data/dev/parties.json",
     "import:parties:clean": "node import-firestore.js parties ../firebase/firestore_data/dev/parties.json --clean",
     "import:questions": "node import-firestore.js proposed_questions ../firebase/firestore_data/dev/proposed_questions.json",
     "import:questions:clean": "node import-firestore.js proposed_questions ../firebase/firestore_data/dev/proposed_questions.json --clean",
-    "import:swiper-theses": "node import-firestore.js chatvote_swiper_theses ../firebase/firestore_data/dev/chatvote_swiper_theses.json",
-    "import:swiper-theses:clean": "node import-firestore.js chatvote_swiper_theses ../firebase/firestore_data/dev/chatvote_swiper_theses.json --clean",
     "import:municipalities": "node import-firestore.js municipalities ../firebase/firestore_data/dev/municipalities.json",
     "import:municipalities:clean": "node import-firestore.js municipalities ../firebase/firestore_data/dev/municipalities.json --clean"
   },

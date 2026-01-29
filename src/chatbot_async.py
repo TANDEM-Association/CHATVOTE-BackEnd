@@ -60,10 +60,6 @@ from src.prompts import (
     chatvote_response_system_prompt_template,
     reranking_system_prompt_template,
     reranking_user_prompt_template,
-    swiper_assistant_system_prompt_template,
-    swiper_assistant_user_prompt_template,
-    generate_swiper_assistant_title_and_quick_replies_system_prompt,
-    generate_swiper_assistant_title_and_quick_replies_user_prompt_str,
     # Candidate-specific prompts
     get_candidate_chat_answer_guidelines,
     candidate_response_system_prompt_template,
@@ -855,81 +851,6 @@ def _format_vote_summary(
 """
 
 
-async def generate_swiper_assistant_response(
-    current_political_question: str,
-    conversation_history: str,
-    user_message: str,
-    chat_response_llm_size: LLMSize,
-) -> Message:
-    now = datetime.now()
-    system_prompt = swiper_assistant_system_prompt_template.format(
-        date=now.strftime("%Y-%m-%d"),
-        time=now.strftime("%H:%M"),
-    )
-
-    user_prompt = swiper_assistant_user_prompt_template.format(
-        current_political_question=current_political_question,
-        conversation_history=conversation_history,
-        user_message=user_message,
-    )
-
-    # Prepare messages with explicit roles
-    messages: list[
-        ChatCompletionSystemMessageParam | ChatCompletionUserMessageParam
-    ] = [
-        ChatCompletionSystemMessageParam(role="system", content=system_prompt),
-        ChatCompletionUserMessageParam(role="user", content=user_prompt),
-    ]
-
-    # Check if Perplexity is available
-    if perplexity_client is None:
-        raise Exception(
-            "Perplexity API key not configured. Set PERPLEXITY_API_KEY environment variable."
-        )
-
-    # perplexity chat completion without streaming
-    model = "sonar" if chat_response_llm_size == LLMSize.SMALL else "sonar-pro"
-    response = await perplexity_client.chat.completions.create(
-        model=model,
-        messages=messages,
-    )
-
-    return build_message_from_perplexity_response(response)
-
-
-async def generate_swiper_assistant_title_and_chick_replies(
-    chat_history_str: str,
-    current_political_question: str,
-) -> GroupChatTitleQuickReplyGenerator:
-    system_prompt = (
-        generate_swiper_assistant_title_and_quick_replies_system_prompt.format(
-            current_political_question=current_political_question,
-            conversation_history=chat_history_str,
-        )
-    )
-
-    user_prompt = (
-        generate_swiper_assistant_title_and_quick_replies_user_prompt_str.format(
-            current_political_question=current_political_question,
-            conversation_history=chat_history_str,
-        )
-    )
-    messages = [
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=user_prompt),
-    ]
-
-    response = await get_structured_output_from_llms(
-        generate_chat_title_and_quick_replies_llms,
-        messages,
-        GroupChatTitleQuickReplyGenerator,
-    )
-    return GroupChatTitleQuickReplyGenerator(
-        chat_title=getattr(response, "chat_title", ""),
-        quick_replies=getattr(response, "quick_replies", []),
-    )
-
-
 # ==================== Candidate-specific Functions ====================
 
 
@@ -1283,11 +1204,13 @@ async def generate_streaming_global_combined_response(
     local_candidates: Optional[List[Candidate]] = None,
     chat_response_llm_size: LLMSize = LLMSize.LARGE,
     use_premium_llms: bool = False,
+    is_single_party_focus: bool = False,
 ) -> AsyncIterator[BaseMessageChunk]:
     """
-    Generate a streaming response combining information from ALL parties and candidates.
+    Generate a streaming response combining information from parties and candidates.
 
     This is the main function for the combined search approach:
+    - SINGLE PARTY: Focuses on one specific party's manifesto + affiliated candidates
     - NATIONAL: Uses manifesto data from ALL parties + candidate data from ALL candidates
     - LOCAL: Uses manifesto data from parties present in the municipality + candidate data
 
@@ -1296,12 +1219,13 @@ async def generate_streaming_global_combined_response(
         user_message: Current user question
         manifesto_docs: Documents from party manifestos (already searched)
         candidate_docs: Documents from candidate websites (already filtered by scope)
-        all_parties: List of all available parties
+        all_parties: List of parties to include in the response (may be filtered)
         scope: 'national' or 'local'
         municipality_name: Name of the municipality (for local scope)
         local_candidates: List of candidates in the municipality (for local scope)
         chat_response_llm_size: LLM size preference
         use_premium_llms: Whether to use premium models
+        is_single_party_focus: True if the user selected a specific party
     """
     if local_candidates is None:
         local_candidates = []
@@ -1314,9 +1238,19 @@ async def generate_streaming_global_combined_response(
 
     answer_guidelines = get_global_combined_answer_guidelines(scope, municipality_name)
 
-    # Build scope description and candidates list for LOCAL scope
+    # Build scope description based on context
     local_candidates_info = ""
-    if scope == "local" and municipality_name:
+
+    # Determine scope description based on single party focus or broader scope
+    if is_single_party_focus and len(all_parties) == 1:
+        # User selected a specific party - focus on that party only
+        focused_party = all_parties[0]
+        scope_description = (
+            f"Tu es l'assistant du parti **{focused_party.name}** ({focused_party.long_name}). "
+            f"Tu réponds UNIQUEMENT sur les propositions et le programme de ce parti. "
+            f"Base-toi sur le programme officiel fourni ci-dessous."
+        )
+    elif scope == "local" and municipality_name:
         scope_description = f"Niveau LOCAL - Commune de {municipality_name}. Tu réponds sur les candidats présents dans cette commune et les propositions de leurs partis."
 
         # Build detailed candidates list
