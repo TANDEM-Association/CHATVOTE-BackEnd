@@ -93,7 +93,7 @@ openai_gpt_4o_mini = (
 # Anthropic Claude models (conditionally initialized)
 anthropic_claude_sonnet = (
     ChatAnthropic(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-5-20250929",
         api_key=_anthropic_api_key,
         max_retries=0,
     )
@@ -103,7 +103,7 @@ anthropic_claude_sonnet = (
 
 anthropic_claude_haiku = (
     ChatAnthropic(
-        model="claude-3-5-haiku-latest",
+        model="claude-haiku-4-5-20251001",
         api_key=_anthropic_api_key,
         max_retries=0,
     )
@@ -246,7 +246,7 @@ openai_gpt_4o_mini_det = (
 # Anthropic Claude deterministic models (conditionally initialized)
 anthropic_claude_sonnet_det = (
     ChatAnthropic(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-5-20250929",
         api_key=_anthropic_api_key,
         temperature=0.0,
         max_retries=0,
@@ -257,7 +257,7 @@ anthropic_claude_sonnet_det = (
 
 anthropic_claude_haiku_det = (
     ChatAnthropic(
-        model="claude-3-5-haiku-latest",
+        model="claude-haiku-4-5-20251001",
         api_key=_anthropic_api_key,
         temperature=0.0,
         max_retries=0,
