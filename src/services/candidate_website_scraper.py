@@ -44,20 +44,20 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 # Timeouts
-PAGE_TIMEOUT = 45000  # ms - timeout for page load
-SCROLL_DELAY = 600  # ms - delay between scroll steps
-NAVIGATION_TIMEOUT = 30000  # ms - timeout for navigation
+PAGE_TIMEOUT = 20000  # ms - timeout for page load
+SCROLL_DELAY = 400  # ms - delay between scroll steps
+NAVIGATION_TIMEOUT = 15000  # ms - timeout for navigation
 
 # Limits
-MAX_PAGES_PER_SITE = 50  # Maximum pages to scrape per candidate
-MAX_PDFS_PER_SITE = 20  # Maximum PDFs to download
-MAX_CRAWL_DEPTH = 3  # How deep to follow links
+MAX_PAGES_PER_SITE = 15  # Maximum pages to scrape per candidate
+MAX_PDFS_PER_SITE = 5  # Maximum PDFs to download
+MAX_CRAWL_DEPTH = 2  # How deep to follow links
 MIN_CONTENT_LENGTH = 100  # Minimum chars for a page to be considered valid
-MAX_CONTENT_LENGTH = 50000  # Maximum chars per page (truncate if longer)
+MAX_CONTENT_LENGTH = 30000  # Maximum chars per page
 
 # Rate limiting
-RATE_LIMIT_DELAY = 0.5  # seconds between requests
-PDF_DOWNLOAD_TIMEOUT = 30  # seconds
+RATE_LIMIT_DELAY = 0.2  # seconds between requests
+PDF_DOWNLOAD_TIMEOUT = 15  # seconds
 
 # PDF limits
 PDF_MAX_SIZE = 15 * 1024 * 1024  # 15 MB max
@@ -713,7 +713,7 @@ class CandidateWebsiteScraper:
 
                 # Try to get URLs from sitemap
                 sitemap_urls = await self._fetch_sitemap(base_url)
-                for url in sitemap_urls[:30]:  # Limit sitemap URLs
+                for url in sitemap_urls[:10]:  # Limit sitemap URLs
                     normalized = self._normalize_url(url)
                     if normalized not in self._visited_urls:
                         queue.append(CrawlTask(url=url, depth=1, source="sitemap"))
@@ -819,6 +819,6 @@ class CandidateWebsiteScraper:
                 )
 
             # Small delay between candidates
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.5)
 
         return results
