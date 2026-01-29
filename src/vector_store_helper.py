@@ -755,7 +755,9 @@ async def _search_candidate_docs_by_party(
             continue
 
         metadata = point.payload.get("metadata", {})
-        candidate_party_ids = metadata.get("party_ids", [])
+        # party_ids is stored as comma-separated string in metadata
+        party_ids_str = metadata.get("party_ids", "")
+        candidate_party_ids = [p.strip() for p in party_ids_str.split(",") if p.strip()]
 
         # Check if any of the candidate's parties match our search
         if any(pid in party_ids for pid in candidate_party_ids):
@@ -821,7 +823,9 @@ async def _search_candidate_docs_by_party_and_municipality(
             continue
 
         metadata = point.payload.get("metadata", {})
-        candidate_party_ids = metadata.get("party_ids", [])
+        # party_ids is stored as comma-separated string in metadata
+        party_ids_str = metadata.get("party_ids", "")
+        candidate_party_ids = [p.strip() for p in party_ids_str.split(",") if p.strip()]
 
         # Check if any of the candidate's parties match our search
         if any(pid in party_ids for pid in candidate_party_ids):
