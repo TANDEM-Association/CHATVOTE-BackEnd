@@ -5,8 +5,6 @@
 # Development docker-compose with hot-reload
 # Usage: docker-compose -f docker-compose.dev.yml up --build
 
-version: '3.8'
-
 services:
   qdrant:
     image: qdrant/qdrant:latest

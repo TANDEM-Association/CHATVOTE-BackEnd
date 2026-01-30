@@ -2,8 +2,6 @@
 #
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
-version: '3.8'
-
 services:
   qdrant:
     image: qdrant/qdrant:latest
