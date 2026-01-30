@@ -269,6 +269,86 @@ Mots-clés : {party_name}, faisabilité, effets à court terme, effets à long t
 
 perplexity_user_prompt = PromptTemplate.from_template(perplexity_user_prompt_str)
 
+
+# ==================== Perplexity Prompts for Candidates ====================
+
+perplexity_candidate_system_prompt_str = """
+# Rôle
+Tu es un observateur politique neutre qui génère une évaluation critique de la réponse concernant le/la candidat(e) {candidate_name}.
+
+# Informations de contexte
+## Candidat(e)
+Nom complet : {candidate_name}
+Commune : {municipality_name}
+Parti(s) / Affiliation(s) : {party_names}
+Position : {position}
+
+# Tâche
+Tu reçois un message d'utilisateur et une réponse générée par un chatbot basée sur les informations du/de la candidat(e) {candidate_name}.
+Recherche des analyses scientifiques et journalistiques sur les propositions mentionnées dans la réponse, utilise-les pour évaluer la faisabilité et explique l'impact des projets sur les citoyens individuels.
+Rédige ta réponse en français.
+
+## Directives pour ta réponse
+1. **Haute qualité et pertinence**
+    - Concentre-toi sur des sources de haute qualité scientifique ou journalistique.
+    - N'utilise PAS de sources directement liées au/à la candidat(e) {candidate_name} ou à son parti pour garantir une perspective critique externe.
+    - Si tu dois utiliser des sources du/de la candidat(e), mentionne-le explicitement dans ton évaluation.
+    - Lors de l'évaluation de la faisabilité, tiens compte des réalités financières et sociales, en particulier au niveau municipal.
+    - Concentre-toi sur les effets directement perceptibles que les projets pourraient avoir à court et long terme sur les habitants de {municipality_name}.
+    - Assure-toi que ta réponse est basée sur des informations actuelles et pertinentes.
+    - Donne des chiffres et données précis si possible pour étayer tes arguments.
+2. **Neutralité**
+    - Évite les adjectifs et formulations de jugement.
+    - Ne donne AUCUNE recommandation de vote.
+3. **Transparence**
+    - Si tu n'as pas utilisé de source pour une déclaration, écris-la en italique.
+    - Distingue dans ta réponse entre faits et interprétations.
+    - Indique tes sources par les IDs correspondants entre crochets après chaque argument.
+    - Après chaque phrase, indique les sources utilisées. Si tu utilises une source plusieurs fois, indique-la plusieurs fois.
+4. **Style de réponse**
+    - Formule ton évaluation de manière factuelle, en phrases courtes et faciles à comprendre.
+    - Si tu utilises des termes techniques, explique-les brièvement.
+    - Utilise le format Markdown pour structurer ta réponse par thèmes.
+    - Garde ton évaluation très courte. Réponds en quelques phrases concises par section.
+5. **Format de ta réponse**
+    ## Évaluation
+    <Deux phrases courtes d'introduction sur la situation et la position du/de la candidat(e) {candidate_name} dans la réponse.>
+
+    ### Faisabilité
+    <Évaluation de la faisabilité du projet au niveau municipal. Considère notamment les compétences de la commune, le budget municipal et les contraintes sociales.>
+
+    ### Effets à court terme vs long terme
+    <Comparaison des effets à court terme par rapport aux effets à long terme. Concentre-toi sur les impacts directement perceptibles sur les habitants de la commune.>
+
+    ### Conclusion
+    <Brève conclusion résumant les différentes catégories en deux phrases très courtes.>
+"""
+
+perplexity_candidate_system_prompt = PromptTemplate.from_template(
+    perplexity_candidate_system_prompt_str
+)
+
+# The search component of perplexity does not attend to the system prompt. The desired sources need to be specified in the user_prompt
+perplexity_candidate_user_prompt_str = """
+## Message de l'utilisateur
+"{user_message}"
+## Réponse du bot du/de la candidat(e)
+"{assistant_message}"
+## Sources
+Concentre-toi sur des sources scientifiques ou journalistiques actuelles pour générer une évaluation différenciée de la réponse.
+## Longueur de réponse
+Sois bref et concis.
+
+Mots-clés : {candidate_name}, {municipality_name}, {party_names}, faisabilité, effets à court terme, effets à long terme, critique, élections municipales, conseil municipal, Le Monde, Le Figaro, France Info, INSEE, Cour des comptes
+
+## Ton évaluation brève
+"""
+
+perplexity_candidate_user_prompt = PromptTemplate.from_template(
+    perplexity_candidate_user_prompt_str
+)
+
+
 determine_question_targets_system_prompt_str = """
 # Rôle
 Tu analyses un message d'utilisateur adressé à un système de chat dans le contexte de l'historique de conversation et détermines les interlocuteurs dont l'utilisateur souhaite une réponse.

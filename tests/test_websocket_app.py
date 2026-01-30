@@ -19,6 +19,8 @@ from src.models.dtos import (
     PartyResponseChunkDto,
     ProConPerspectiveRequestDto,
     ProConPerspectiveDto,
+    CandidateProConPerspectiveRequestDto,
+    CandidateProConPerspectiveDto,
     QuickRepliesAndTitleDto,
     RespondingPartiesDto,
     SourcesDto,
@@ -391,6 +393,44 @@ async def test_get_pro_con_perspective(client: socketio.Client):
     assert response
     pro_con_response_dto = ProConPerspectiveDto(**response)
     assert pro_con_response_dto.request_id == payload_dto.request_id
+    assert pro_con_response_dto.message is not None
+    assert len(pro_con_response_dto.message.content) > 0
+
+
+@pytest.mark.asyncio
+async def test_get_candidate_pro_con_perspective(client: socketio.Client):
+    """Test the `candidate_pro_con_perspective` events."""
+    payload = {
+        "request_id": str(uuid.uuid4()),
+        "candidate_id": "cand-paris-001",  # Rachida Dati
+        "last_user_message": "Quelles sont les propositions pour améliorer les transports à Paris?",
+        "last_assistant_message": "La candidate propose de développer le réseau de bus et d'améliorer les pistes cyclables.",
+    }
+
+    payload_dto = CandidateProConPerspectiveRequestDto(**payload)
+
+    response_future: asyncio.Future = (
+        asyncio.Future()
+    )  # Future to hold the server response
+
+    @client.on("candidate_pro_con_perspective_complete")
+    def handle_candidate_pro_con_response(data):
+        response_future.set_result(data)
+
+    client.emit("candidate_pro_con_perspective_request", payload_dto.model_dump())
+
+    # Wait for the server response or timeout after 30 seconds (Perplexity can be slower)
+    try:
+        response = await asyncio.wait_for(response_future, timeout=30)
+    except asyncio.TimeoutError:
+        pytest.fail("Candidate Pro/Con perspective not received within timeout.")
+
+    assert response
+    pro_con_response_dto = CandidateProConPerspectiveDto(**response)
+    assert pro_con_response_dto.request_id == payload_dto.request_id
+    assert pro_con_response_dto.candidate_id == payload_dto.candidate_id
+    assert pro_con_response_dto.status.indicator == StatusIndicator.SUCCESS
+    assert pro_con_response_dto.message is not None
     assert len(pro_con_response_dto.message.content) > 0
 
 

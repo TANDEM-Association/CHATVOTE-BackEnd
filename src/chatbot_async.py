@@ -43,6 +43,8 @@ from src.prompts import (
     user_prompt_improvement_template,
     perplexity_system_prompt,
     perplexity_user_prompt,
+    perplexity_candidate_system_prompt,
+    perplexity_candidate_user_prompt,
     determine_question_targets_system_prompt,
     determine_question_targets_user_prompt,
     determine_question_type_system_prompt,
@@ -507,6 +509,89 @@ async def generate_pro_con_perspective(
     return build_message_from_perplexity_response(response)
 
 
+async def generate_pro_con_perspective_candidate(
+    chat_history: List[Message],
+    candidate: Candidate,
+    all_parties: List[Party],
+) -> Message:
+    """
+    Generate a pro/con perspective for a candidate's response using Perplexity.
+
+    This function takes the chat history with a candidate and generates an external
+    critical evaluation using Perplexity's search capabilities. The evaluation
+    focuses on the feasibility and impact of the candidate's proposals at the
+    municipal level.
+
+    Args:
+        chat_history: List of messages from the conversation with the candidate.
+        candidate: The Candidate object for which to generate the perspective.
+        all_parties: List of all parties to resolve party names from party_ids.
+
+    Returns:
+        Message: The pro/con perspective message with citations.
+
+    Raises:
+        Exception: If Perplexity API key is not configured.
+    """
+    # Extract the last assistant and user message from the chat history
+    last_assistant_message = next(
+        (message for message in chat_history[::-1] if message.role == "assistant"),
+        None,
+    )
+    last_user_message = next(
+        (message for message in chat_history[::-1] if message.role == "user"), None
+    )
+
+    # Resolve party names from party_ids
+    party_names = []
+    for party_id in candidate.party_ids:
+        party = next((p for p in all_parties if p.party_id == party_id), None)
+        if party is not None:
+            party_names.append(party.name)
+    party_names_str = ", ".join(party_names) if party_names else "Indépendant"
+
+    municipality_name = candidate.municipality_name or "France"
+    position = candidate.position or "Candidat(e)"
+
+    system_prompt = perplexity_candidate_system_prompt.format(
+        candidate_name=candidate.full_name,
+        municipality_name=municipality_name,
+        party_names=party_names_str,
+        position=position,
+    )
+    user_prompt = perplexity_candidate_user_prompt.format(
+        assistant_message=last_assistant_message.content
+        if last_assistant_message
+        else "",
+        user_message=last_user_message.content if last_user_message else "",
+        candidate_name=candidate.full_name,
+        municipality_name=municipality_name,
+        party_names=party_names_str,
+    )
+
+    # Prepare messages with explicit roles
+    messages: list[
+        ChatCompletionSystemMessageParam | ChatCompletionUserMessageParam
+    ] = [
+        ChatCompletionSystemMessageParam(role="system", content=system_prompt),
+        ChatCompletionUserMessageParam(role="user", content=user_prompt),
+    ]
+
+    # Check if Perplexity is available
+    if perplexity_client is None:
+        raise Exception(
+            "Perplexity API key not configured. Set PERPLEXITY_API_KEY environment variable."
+        )
+
+    # Chat completion without streaming
+    response = await perplexity_client.chat.completions.create(
+        model="sonar",
+        messages=messages,
+    )
+
+    return build_message_from_perplexity_response(response)
+
+
 async def generate_chat_summary(chat_history: list[Message]) -> str:
     # create a list of messages from the chat history, user messages as "Utilisateur: " and assistant messages use the party_id as role
     conversation_history = []
@@ -555,13 +640,13 @@ def get_rag_comparison_context(
     rag_context = ""
     doc_num = 0
     for party in relevant_parties:
-        rag_context += f"\n\nInformationen von {party.name}:\n"
+        rag_context += f"\n\nInformations de {party.name}:\n"
         for doc in relevant_docs[party.party_id]:
             context_obj = f"""- ID: {doc_num}
-- Dokumentname: {doc.metadata.get("document_name", "unbekannt")}
+- Nom du document: {doc.metadata.get("document_name", "inconnu")}
 - Liste: {party.name}
-- Veröffentlichungsdatum: {doc.metadata.get("document_publish_date", "unbekannt")}
-- Inhalt: "{doc.page_content}"
+- Date de publication: {doc.metadata.get("document_publish_date", "inconnu")}
+- Contenu: "{doc.page_content}"
 
 """
             doc_num += 1
@@ -787,7 +872,7 @@ async def generate_party_vote_behavior_summary(
 
         votes_list += _format_vote_summary(
             vote,
-            (vote.short_description or "Keine Zusammenfassung angegeben.")
+            (vote.short_description or "Aucun résumé fourni.")
             .replace("\n", " ")
             .strip(),
             party_result,

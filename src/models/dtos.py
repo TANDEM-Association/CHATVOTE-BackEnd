@@ -101,7 +101,35 @@ class ProConPerspectiveDto(BaseModel):
     request_id: Optional[str] = Field(
         ..., description="The ID of the Pro/Con assessment request if applicable"
     )
-    message: Message = Field(..., description="The Pro/Con assessment message")
+    message: Optional[Message] = Field(
+        default=None, description="The Pro/Con assessment message"
+    )
+    status: Status = Field(..., description="The status of the event")
+
+
+class CandidateProConPerspectiveRequestDto(BaseModel):
+    """Request DTO for generating a Pro/Con perspective for a candidate's response."""
+
+    request_id: str = Field(..., description="The ID of the Pro/Con assessment request")
+    candidate_id: str = Field(
+        ..., description="The ID of the candidate the user is chatting with"
+    )
+    last_user_message: str = Field(..., description="The last user message")
+    last_assistant_message: str = Field(..., description="The last assistant message")
+
+
+class CandidateProConPerspectiveDto(BaseModel):
+    """Response DTO for a candidate's Pro/Con perspective assessment."""
+
+    request_id: Optional[str] = Field(
+        ..., description="The ID of the Pro/Con assessment request if applicable"
+    )
+    candidate_id: Optional[str] = Field(
+        default=None, description="The ID of the candidate"
+    )
+    message: Optional[Message] = Field(
+        default=None, description="The Pro/Con assessment message"
+    )
     status: Status = Field(..., description="The status of the event")
 
 

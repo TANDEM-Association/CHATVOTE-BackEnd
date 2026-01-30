@@ -21,6 +21,7 @@ from src.chatbot_async import (
     get_improved_rag_query_voting_behavior,
     get_question_targets_and_type,
     generate_pro_con_perspective,
+    generate_pro_con_perspective_candidate,
     generate_improvement_rag_query,
     generate_streaming_chatbot_response,
     generate_chat_summary,
@@ -39,6 +40,7 @@ from src.firebase_service import (
     # Candidate functions
     aget_candidates_by_municipality,
     aget_candidates,
+    aget_candidate_by_id,
 )
 from src.models.chat import CachedResponse, GroupChatSession, Message, Role
 from src.models.dtos import (
@@ -51,6 +53,8 @@ from src.models.dtos import (
     InitChatSessionDto,
     ProConPerspectiveRequestDto,
     ProConPerspectiveDto,
+    CandidateProConPerspectiveRequestDto,
+    CandidateProConPerspectiveDto,
     QuickRepliesAndTitleDto,
     RespondingPartiesDto,
     SourcesDto,
@@ -274,6 +278,101 @@ async def get_pro_con_perspective(sid: str, body: dict):
         )
         await sio.emit(
             "pro_con_perspective_complete", response_dto.model_dump(), to=sid
+        )
+        return
+
+
+@sio.on("candidate_pro_con_perspective_request")
+async def get_candidate_pro_con_perspective(sid: str, body: dict):
+    """
+    Handle a request for a Pro/Con perspective on a candidate's response.
+
+    This endpoint uses Perplexity to generate an external critical evaluation
+    of a candidate's response, focusing on feasibility and impact at the
+    municipal level.
+
+    Args:
+        sid: Socket.IO session ID of the client.
+        body: Request body containing request_id, candidate_id, last_user_message,
+              and last_assistant_message.
+
+    Emits:
+        candidate_pro_con_perspective_complete: The complete Pro/Con perspective
+        or an error status.
+    """
+    logger.info(
+        f"Client {sid} requested candidate pro/con perspective with body: {body}"
+    )
+    try:
+        pro_con_request = CandidateProConPerspectiveRequestDto(**body)
+        candidate_id = pro_con_request.candidate_id
+        last_user_message_str = pro_con_request.last_user_message
+        last_assistant_message_str = pro_con_request.last_assistant_message
+    except ValidationError as e:
+        logger.error(
+            f"Error validating candidate pro/con perspective request for client {sid}: {e}"
+        )
+        response_dto = CandidateProConPerspectiveDto(
+            request_id=None,
+            candidate_id=None,
+            message=None,
+            status=Status(indicator=StatusIndicator.ERROR, message=str(e)),
+        )
+        await sio.emit(
+            "candidate_pro_con_perspective_complete", response_dto.model_dump(), to=sid
+        )
+        return
+
+    logger.debug(
+        f"Generating pro/con perspective for candidate {candidate_id} with user message "
+        f"'{last_user_message_str}' and assistant message '{last_assistant_message_str}'"
+    )
+
+    try:
+        # Fetch the candidate and all parties (for resolving party names)
+        candidate = await aget_candidate_by_id(candidate_id)
+
+        if candidate is None:
+            raise ValueError(f"Candidate {candidate_id} not found")
+
+        all_parties = await aget_parties()
+
+        last_user_message = Message(role="user", content=last_user_message_str)
+        last_assistant_message = Message(
+            role="assistant", content=last_assistant_message_str
+        )
+
+        chat_history = [last_user_message, last_assistant_message]
+
+        pro_con_perspective = await generate_pro_con_perspective_candidate(
+            chat_history, candidate, all_parties
+        )
+
+        logger.debug(f"Emitting candidate pro/con perspective to client {sid}")
+
+        response_dto = CandidateProConPerspectiveDto(
+            request_id=pro_con_request.request_id,
+            candidate_id=candidate_id,
+            message=pro_con_perspective,
+            status=Status(indicator=StatusIndicator.SUCCESS, message="Success"),
+        )
+
+        await sio.emit(
+            "candidate_pro_con_perspective_complete", response_dto.model_dump(), to=sid
+        )
+    except Exception as e:
+        logger.error(
+            f"Error generating pro/con perspective for candidate {candidate_id}: {e}",
+            exc_info=True,
+        )
+        response_dto = CandidateProConPerspectiveDto(
+            request_id=pro_con_request.request_id,
+            candidate_id=candidate_id,
+            message=None,
+            status=Status(indicator=StatusIndicator.ERROR, message=str(e)),
+        )
+        await sio.emit(
+            "candidate_pro_con_perspective_complete", response_dto.model_dump(), to=sid
         )
         return
 
@@ -1382,7 +1481,7 @@ async def chat_answer_request(sid: str, body: dict):
     try:
         chat_title_and_quick_replies = await generate_chat_title_and_chick_replies(
             chat_history_str=full_conversation_history_str,
-            chat_title=chat_session.title or "Noch kein Titel vergeben",
+            chat_title=chat_session.title or "Aucun titre attribué",
             parties_in_chat=parties_in_chat,
             chatvote_assistant_last_responded=party_id_list == [ASSISTANT_ID],
             is_comparing=is_comparing_question,
