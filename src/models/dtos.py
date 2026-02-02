@@ -4,7 +4,7 @@
 
 import enum
 from pydantic import BaseModel, Field, field_validator, ValidationError
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from src.models.general import LLMSize
 from src.models.vote import Vote
@@ -78,6 +78,10 @@ class InitChatSessionDto(BaseModel):
     municipality_code: Optional[str] = Field(
         description="The INSEE code of the municipality. Required when scope is LOCAL.",
         default=None,
+    )
+    locale: Literal["fr", "en"] = Field(
+        description="The locale for responses (fr or en). Defaults to French.",
+        default="fr",
     )
 
 
@@ -219,6 +223,10 @@ class ChatUserMessageDto(BaseModel):
     municipality_code: Optional[str] = Field(
         description="The INSEE code of the municipality. Required when scope is LOCAL.",
         default=None,
+    )
+    locale: Literal["fr", "en"] = Field(
+        description="The locale for responses (fr or en). Defaults to French.",
+        default="fr",
     )
 
     @field_validator("session_id")

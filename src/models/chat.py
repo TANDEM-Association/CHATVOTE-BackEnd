@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
 from enum import Enum
-from typing import List, Optional
+from typing import List, Literal, Optional
 from pydantic import BaseModel, Field
 from datetime import datetime
 
@@ -76,6 +76,10 @@ class GroupChatSession(BaseModel):
     municipality_code: Optional[str] = Field(
         description="The INSEE code of the municipality. Required when scope is 'local'.",
         default=None,
+    )
+    locale: Literal["fr", "en"] = Field(
+        description="The locale for responses (fr or en). Defaults to French.",
+        default="fr",
     )
 
 

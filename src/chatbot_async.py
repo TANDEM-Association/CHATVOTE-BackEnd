@@ -34,50 +34,56 @@ from src.utils import (
     load_env,
 )
 from src.prompts import (
+    # Type and default
+    Locale,
+    DEFAULT_LOCALE,
+    # Direct imports (still needed for some functions)
     get_chat_answer_guidelines,
-    get_quick_reply_guidelines,
-    party_response_system_prompt_template,
-    streaming_party_response_user_prompt_template,
-    system_prompt_improvement_template,
-    system_prompt_improve_general_chat_rag_query_template,
-    user_prompt_improvement_template,
     perplexity_system_prompt,
     perplexity_user_prompt,
     perplexity_candidate_system_prompt,
     perplexity_candidate_user_prompt,
-    determine_question_targets_system_prompt,
-    determine_question_targets_user_prompt,
-    determine_question_type_system_prompt,
-    determine_question_type_user_prompt,
-    generate_chat_summary_system_prompt,
-    generate_chat_summary_user_prompt,
-    generate_chat_title_and_quick_replies_system_prompt,
-    generate_chat_title_and_quick_replies_user_prompt,
-    generate_chatvote_title_and_quick_replies_system_prompt_str,
-    party_comparison_system_prompt_template,
     generate_party_vote_behavior_summary_system_prompt,
     generate_party_vote_behavior_summary_user_prompt,
     system_prompt_improvement_rag_template_vote_behavior_summary,
     user_prompt_improvement_rag_template_vote_behavior_summary,
-    chatvote_response_system_prompt_template,
+    generate_chatvote_title_and_quick_replies_system_prompt_str,
+    # Templates used directly (default locale)
     reranking_system_prompt_template,
     reranking_user_prompt_template,
-    # Candidate-specific prompts
+    determine_question_targets_system_prompt,
+    determine_question_targets_user_prompt,
+    determine_question_type_system_prompt,
+    determine_question_type_user_prompt,
+    system_prompt_improvement_template,
+    system_prompt_improve_general_chat_rag_query_template,
+    user_prompt_improvement_template,
+    generate_chat_summary_system_prompt,
+    generate_chat_summary_user_prompt,
+    # Candidate-specific prompts (non-localized for now)
     get_candidate_chat_answer_guidelines,
     candidate_response_system_prompt_template,
     candidate_local_response_system_prompt_template,
     candidate_national_response_system_prompt_template,
     streaming_candidate_response_user_prompt_template,
     system_prompt_improvement_candidate_template,
-    # Entity detection and combined response prompts
+    # Entity detection prompts
     detect_entities_system_prompt_template,
     detect_entities_user_prompt_template,
     get_combined_answer_guidelines,
     combined_response_system_prompt_template,
     streaming_combined_response_user_prompt_template,
-    # Global combined response prompts (all parties)
-    get_global_combined_answer_guidelines,
-    global_combined_response_system_prompt_template,
+    # Locale-aware getters
+    get_party_response_system_prompt_template,
+    get_party_comparison_system_prompt_template,
+    get_streaming_party_response_user_prompt_template,
+    get_chatvote_response_system_prompt_template,
+    get_quick_reply_guidelines_for_locale,
+    get_generate_chat_title_and_quick_replies_system_prompt,
+    get_generate_chat_title_and_quick_replies_user_prompt,
+    get_global_combined_answer_guidelines_for_locale,
+    get_global_combined_response_system_prompt_template,
+    get_streaming_combined_response_user_prompt_template,
 )
 
 from src.models.chat import Message
@@ -688,21 +694,32 @@ async def generate_streaming_chatbot_response(
     all_parties: list[Party],
     chat_response_llm_size: LLMSize,
     use_premium_llms: bool = False,
+    locale: Locale = DEFAULT_LOCALE,
 ) -> AsyncIterator[BaseMessageChunk]:
     rag_context = get_rag_context(relevant_docs)
 
     now = datetime.now()
 
-    answer_guidelines = get_chat_answer_guidelines(responder.name, is_comparing=False)
+    answer_guidelines = get_chat_answer_guidelines(
+        responder.name, is_comparing=False, locale=locale
+    )
 
     if responder.party_id == ASSISTANT_ID:
         all_parties_list = ""
         for party in all_parties:
             all_parties_list += f"### {party.long_name}\n"
-            all_parties_list += f"Nom court: {party.name}\n"
+            all_parties_list += (
+                f"Short name: {party.name}\n"
+                if locale == "en"
+                else f"Nom court: {party.name}\n"
+            )
             all_parties_list += f"Description: {party}\n"
-            all_parties_list += f"Tête de liste: {party.candidate}\n"
-        system_prompt = chatvote_response_system_prompt_template.format(
+            all_parties_list += (
+                f"Party leader: {party.candidate}\n"
+                if locale == "en"
+                else f"Tête de liste: {party.candidate}\n"
+            )
+        system_prompt = get_chatvote_response_system_prompt_template(locale).format(
             all_parties_list=all_parties_list,
             date=now.strftime("%Y-%m-%d"),
             time=now.strftime("%H:%M"),
@@ -711,7 +728,7 @@ async def generate_streaming_chatbot_response(
     else:
         # It's a party (not the assistant)
         assert isinstance(responder, Party)
-        system_prompt = party_response_system_prompt_template.format(
+        system_prompt = get_party_response_system_prompt_template(locale).format(
             party_name=responder.name,
             party_long_name=responder.long_name,
             party_description=responder.description,
@@ -723,7 +740,7 @@ async def generate_streaming_chatbot_response(
             answer_guidelines=answer_guidelines,
         )
 
-    user_prompt = streaming_party_response_user_prompt_template.format(
+    user_prompt = get_streaming_party_response_user_prompt_template(locale).format(
         conversation_history=conversation_history,
         last_user_message=user_message,
     )
@@ -748,6 +765,7 @@ async def generate_streaming_chatbot_comparing_response(
     relevant_parties: List[Party],
     chat_response_llm_size: LLMSize,
     use_premium_llms: bool = False,
+    locale: Locale = DEFAULT_LOCALE,
 ) -> AsyncIterator[BaseMessageChunk]:
     """Generate a comparison response between multiple parties.
 
@@ -758,12 +776,12 @@ async def generate_streaming_chatbot_comparing_response(
     now = datetime.now()
 
     answer_guidelines = get_chat_answer_guidelines(
-        CHATVOTE_ASSISTANT.name, is_comparing=True
+        CHATVOTE_ASSISTANT.name, is_comparing=True, locale=locale
     )
 
     parties_being_compared = [party.name for party in relevant_parties]
 
-    system_prompt = party_comparison_system_prompt_template.format(
+    system_prompt = get_party_comparison_system_prompt_template(locale).format(
         party_name=CHATVOTE_ASSISTANT.name,
         party_long_name=CHATVOTE_ASSISTANT.long_name,
         party_description=CHATVOTE_ASSISTANT.description,
@@ -776,7 +794,7 @@ async def generate_streaming_chatbot_comparing_response(
         parties_being_compared=parties_being_compared,
     )
 
-    user_prompt = streaming_party_response_user_prompt_template.format(
+    user_prompt = get_streaming_party_response_user_prompt_template(locale).format(
         conversation_history=conversation_history,
         last_user_message=user_message,
     )
@@ -800,6 +818,7 @@ async def generate_chat_title_and_chick_replies(
     parties_in_chat: List[Party],
     chatvote_assistant_last_responded: bool = False,
     is_comparing: bool = False,
+    locale: Locale = DEFAULT_LOCALE,
 ) -> GroupChatTitleQuickReplyGenerator:
     # filter chat-vote party out of the list of parties
     parties_in_chat = [
@@ -809,22 +828,26 @@ async def generate_chat_title_and_chick_replies(
     for party in parties_in_chat:
         party_list += f"- {party.name} ({party.long_name}): {party.description}\n"
     if party_list == "":
-        party_list = "Aucune liste n'est encore dans ce chat."
+        party_list = (
+            "No party is in this chat yet."
+            if locale == "en"
+            else "Aucune liste n'est encore dans ce chat."
+        )
     if chatvote_assistant_last_responded:
         system_prompt = (
             generate_chatvote_title_and_quick_replies_system_prompt_str.format(
                 party_list=party_list,
-                quick_reply_guidelines=get_quick_reply_guidelines(
-                    is_comparing=is_comparing
+                quick_reply_guidelines=get_quick_reply_guidelines_for_locale(
+                    is_comparing=is_comparing, locale=locale
                 ),
             )
         )
     else:
-        system_prompt = generate_chat_title_and_quick_replies_system_prompt.format(
-            party_list=party_list
-        )
+        system_prompt = get_generate_chat_title_and_quick_replies_system_prompt(
+            locale
+        ).format(party_list=party_list)
 
-    user_prompt = generate_chat_title_and_quick_replies_user_prompt.format(
+    user_prompt = get_generate_chat_title_and_quick_replies_user_prompt(locale).format(
         current_chat_title=chat_title,
         conversation_history=chat_history_str,
     )
@@ -1290,6 +1313,7 @@ async def generate_streaming_global_combined_response(
     chat_response_llm_size: LLMSize = LLMSize.LARGE,
     use_premium_llms: bool = False,
     is_single_party_focus: bool = False,
+    locale: Locale = DEFAULT_LOCALE,
 ) -> AsyncIterator[BaseMessageChunk]:
     """
     Generate a streaming response combining information from parties and candidates.
@@ -1311,6 +1335,7 @@ async def generate_streaming_global_combined_response(
         chat_response_llm_size: LLM size preference
         use_premium_llms: Whether to use premium models
         is_single_party_focus: True if the user selected a specific party
+        locale: Response language (fr or en)
     """
     if local_candidates is None:
         local_candidates = []
@@ -1321,7 +1346,9 @@ async def generate_streaming_global_combined_response(
         manifesto_docs, candidate_docs
     )
 
-    answer_guidelines = get_global_combined_answer_guidelines(scope, municipality_name)
+    answer_guidelines = get_global_combined_answer_guidelines_for_locale(
+        scope, municipality_name, locale
+    )
 
     # Build scope description based on context
     local_candidates_info = ""
@@ -1330,36 +1357,73 @@ async def generate_streaming_global_combined_response(
     if is_single_party_focus and len(all_parties) == 1:
         # User selected a specific party - focus on that party only
         focused_party = all_parties[0]
-        scope_description = (
-            f"Tu es l'assistant du parti **{focused_party.name}** ({focused_party.long_name}). "
-            f"Tu réponds UNIQUEMENT sur les propositions et le programme de ce parti. "
-            f"Base-toi sur le programme officiel fourni ci-dessous."
-        )
+        if locale == "en":
+            scope_description = (
+                f"You are the assistant for the party **{focused_party.name}** ({focused_party.long_name}). "
+                f"You respond ONLY about the proposals and program of this party. "
+                f"Base yourself on the official program provided below."
+            )
+        else:
+            scope_description = (
+                f"Tu es l'assistant du parti **{focused_party.name}** ({focused_party.long_name}). "
+                f"Tu réponds UNIQUEMENT sur les propositions et le programme de ce parti. "
+                f"Base-toi sur le programme officiel fourni ci-dessous."
+            )
     elif scope == "local" and municipality_name:
-        scope_description = f"Niveau LOCAL - Commune de {municipality_name}. Tu réponds sur les candidats présents dans cette commune et les propositions de leurs partis."
+        if locale == "en":
+            scope_description = f"LOCAL level - Municipality of {municipality_name}. You respond about the candidates present in this municipality and their parties' proposals."
+        else:
+            scope_description = f"Niveau LOCAL - Commune de {municipality_name}. Tu réponds sur les candidats présents dans cette commune et les propositions de leurs partis."
 
         # Build detailed candidates list
         if local_candidates:
-            local_candidates_info = f"\n## Candidats présents à {municipality_name}\n"
+            if locale == "en":
+                local_candidates_info = (
+                    f"\n## Candidates present in {municipality_name}\n"
+                )
+            else:
+                local_candidates_info = (
+                    f"\n## Candidats présents à {municipality_name}\n"
+                )
             for candidate in local_candidates:
                 party_names = []
                 for pid in candidate.party_ids:
                     party = next((p for p in all_parties if p.party_id == pid), None)
                     if party is not None:
                         party_names.append(party.name)
-                party_str = ", ".join(party_names) if party_names else "Indépendant"
-                position = candidate.position or "Candidat(e)"
-                website_info = (
-                    f" - Site: {candidate.website_url}"
-                    if candidate.website_url
-                    else " - Pas de site web"
+                party_str = (
+                    ", ".join(party_names)
+                    if party_names
+                    else ("Independent" if locale == "en" else "Indépendant")
                 )
-                incumbent_info = " (sortant)" if candidate.is_incumbent else ""
+                position = candidate.position or (
+                    "Candidate" if locale == "en" else "Candidat(e)"
+                )
+                if locale == "en":
+                    website_info = (
+                        f" - Website: {candidate.website_url}"
+                        if candidate.website_url
+                        else " - No website"
+                    )
+                    incumbent_info = " (incumbent)" if candidate.is_incumbent else ""
+                else:
+                    website_info = (
+                        f" - Site: {candidate.website_url}"
+                        if candidate.website_url
+                        else " - Pas de site web"
+                    )
+                    incumbent_info = " (sortant)" if candidate.is_incumbent else ""
                 local_candidates_info += f"- **{candidate.full_name}** ({party_str}) - {position}{incumbent_info}{website_info}\n"
         else:
-            local_candidates_info = f"\n## Candidats présents à {municipality_name}\nAucun candidat enregistré pour cette commune.\n"
+            if locale == "en":
+                local_candidates_info = f"\n## Candidates present in {municipality_name}\nNo candidate registered for this municipality.\n"
+            else:
+                local_candidates_info = f"\n## Candidats présents à {municipality_name}\nAucun candidat enregistré pour cette commune.\n"
     else:
-        scope_description = "Niveau NATIONAL - Tu réponds sur les propositions de TOUS les partis et de l'ensemble des candidats en France."
+        if locale == "en":
+            scope_description = "NATIONAL level - You respond about the proposals of ALL parties and all candidates in France."
+        else:
+            scope_description = "Niveau NATIONAL - Tu réponds sur les propositions de TOUS les partis et de l'ensemble des candidats en France."
 
     # Build parties list (filter to relevant parties for local scope)
     if scope == "local" and local_candidates:
@@ -1376,7 +1440,7 @@ async def generate_streaming_global_combined_response(
         for party in all_parties:
             parties_list += f"- {party.name} ({party.long_name})\n"
 
-    system_prompt = global_combined_response_system_prompt_template.format(
+    system_prompt = get_global_combined_response_system_prompt_template(locale).format(
         scope_description=scope_description,
         parties_list=parties_list,
         local_candidates_info=local_candidates_info,
@@ -1387,7 +1451,7 @@ async def generate_streaming_global_combined_response(
         answer_guidelines=answer_guidelines,
     )
 
-    user_prompt = streaming_combined_response_user_prompt_template.format(
+    user_prompt = get_streaming_combined_response_user_prompt_template(locale).format(
         conversation_history=conversation_history,
         last_user_message=user_message,
     )

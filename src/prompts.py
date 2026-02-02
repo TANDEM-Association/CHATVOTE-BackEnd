@@ -1,11 +1,28 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
+from typing import Literal
+
 from langchain.prompts import (
     PromptTemplate,
 )
 
+# Type alias for supported locales
+Locale = Literal["fr", "en"]
+DEFAULT_LOCALE: Locale = "fr"
 
-def get_chat_answer_guidelines(party_name: str, is_comparing: bool = False):
+
+def get_chat_answer_guidelines(
+    party_name: str, is_comparing: bool = False, locale: Locale = DEFAULT_LOCALE
+) -> str:
+    """Get chat answer guidelines in the specified locale."""
+    if locale == "en":
+        from src.prompts_en import get_chat_answer_guidelines_en
+
+        return get_chat_answer_guidelines_en(party_name, is_comparing)
+    return _get_chat_answer_guidelines_fr(party_name, is_comparing)
+
+
+def _get_chat_answer_guidelines_fr(party_name: str, is_comparing: bool = False) -> str:
     if not is_comparing:
         comparison_handling = f"Pour les comparaisons ou questions concernant d'autres listes, rappelle poliment que tu es uniquement responsable de la liste {party_name}. Indique également que l'utilisateur peut créer un chat avec plusieurs listes via la page d'accueil ou le menu de navigation pour obtenir des comparaisons."
     else:
@@ -1286,3 +1303,274 @@ Compare les différentes positions de manière neutre et équilibrée.
 global_combined_response_system_prompt_template = PromptTemplate.from_template(
     global_combined_response_system_prompt_template_str
 )
+
+
+# ==================== Locale-aware Template Getters ====================
+
+
+def get_party_response_system_prompt_template(
+    locale: Locale = DEFAULT_LOCALE,
+) -> PromptTemplate:
+    """Get the party response system prompt template for the specified locale."""
+    if locale == "en":
+        from src.prompts_en import party_response_system_prompt_template_en
+
+        return party_response_system_prompt_template_en
+    return party_response_system_prompt_template
+
+
+def get_party_comparison_system_prompt_template(
+    locale: Locale = DEFAULT_LOCALE,
+) -> PromptTemplate:
+    """Get the party comparison system prompt template for the specified locale."""
+    if locale == "en":
+        from src.prompts_en import party_comparison_system_prompt_template_en
+
+        return party_comparison_system_prompt_template_en
+    return party_comparison_system_prompt_template
+
+
+def get_streaming_party_response_user_prompt_template(
+    locale: Locale = DEFAULT_LOCALE,
+) -> PromptTemplate:
+    """Get the streaming party response user prompt template for the specified locale."""
+    if locale == "en":
+        from src.prompts_en import streaming_party_response_user_prompt_template_en
+
+        return streaming_party_response_user_prompt_template_en
+    return streaming_party_response_user_prompt_template
+
+
+def get_system_prompt_improvement_template(
+    locale: Locale = DEFAULT_LOCALE,
+) -> PromptTemplate:
+    """Get the system prompt improvement template for the specified locale."""
+    if locale == "en":
+        from src.prompts_en import system_prompt_improvement_template_en
+
+        return system_prompt_improvement_template_en
+    return system_prompt_improvement_template
+
+
+def get_system_prompt_improve_general_chat_rag_query_template(
+    locale: Locale = DEFAULT_LOCALE,
+) -> PromptTemplate:
+    """Get the general chat RAG query improvement template for the specified locale."""
+    if locale == "en":
+        from src.prompts_en import (
+            system_prompt_improve_general_chat_rag_query_template_en,
+        )
+
+        return system_prompt_improve_general_chat_rag_query_template_en
+    return system_prompt_improve_general_chat_rag_query_template
+
+
+def get_user_prompt_improvement_template(
+    locale: Locale = DEFAULT_LOCALE,
+) -> PromptTemplate:
+    """Get the user prompt improvement template for the specified locale."""
+    if locale == "en":
+        from src.prompts_en import user_prompt_improvement_template_en
+
+        return user_prompt_improvement_template_en
+    return user_prompt_improvement_template
+
+
+def get_chatvote_response_system_prompt_template(
+    locale: Locale = DEFAULT_LOCALE,
+) -> PromptTemplate:
+    """Get the ChatVote response system prompt template for the specified locale."""
+    if locale == "en":
+        from src.prompts_en import chatvote_response_system_prompt_template_en
+
+        return chatvote_response_system_prompt_template_en
+    return chatvote_response_system_prompt_template
+
+
+def get_determine_question_targets_system_prompt(
+    locale: Locale = DEFAULT_LOCALE,
+) -> PromptTemplate:
+    """Get the determine question targets system prompt for the specified locale."""
+    if locale == "en":
+        from src.prompts_en import determine_question_targets_system_prompt_en
+
+        return determine_question_targets_system_prompt_en
+    return determine_question_targets_system_prompt
+
+
+def get_determine_question_targets_user_prompt(
+    locale: Locale = DEFAULT_LOCALE,
+) -> PromptTemplate:
+    """Get the determine question targets user prompt for the specified locale."""
+    if locale == "en":
+        from src.prompts_en import determine_question_targets_user_prompt_en
+
+        return determine_question_targets_user_prompt_en
+    return determine_question_targets_user_prompt
+
+
+def get_determine_question_type_system_prompt(
+    locale: Locale = DEFAULT_LOCALE,
+) -> PromptTemplate:
+    """Get the determine question type system prompt for the specified locale."""
+    if locale == "en":
+        from src.prompts_en import determine_question_type_system_prompt_en
+
+        return determine_question_type_system_prompt_en
+    return determine_question_type_system_prompt
+
+
+def get_determine_question_type_user_prompt(
+    locale: Locale = DEFAULT_LOCALE,
+) -> PromptTemplate:
+    """Get the determine question type user prompt for the specified locale."""
+    if locale == "en":
+        from src.prompts_en import determine_question_type_user_prompt_en
+
+        return determine_question_type_user_prompt_en
+    return determine_question_type_user_prompt
+
+
+def get_generate_chat_summary_system_prompt(
+    locale: Locale = DEFAULT_LOCALE,
+) -> PromptTemplate:
+    """Get the generate chat summary system prompt for the specified locale."""
+    if locale == "en":
+        from src.prompts_en import generate_chat_summary_system_prompt_en
+
+        return generate_chat_summary_system_prompt_en
+    return generate_chat_summary_system_prompt
+
+
+def get_generate_chat_summary_user_prompt(
+    locale: Locale = DEFAULT_LOCALE,
+) -> PromptTemplate:
+    """Get the generate chat summary user prompt for the specified locale."""
+    if locale == "en":
+        from src.prompts_en import generate_chat_summary_user_prompt_en
+
+        return generate_chat_summary_user_prompt_en
+    return generate_chat_summary_user_prompt
+
+
+def get_quick_reply_guidelines_for_locale(
+    is_comparing: bool, locale: Locale = DEFAULT_LOCALE
+) -> str:
+    """Get quick reply guidelines for the specified locale."""
+    if locale == "en":
+        from src.prompts_en import get_quick_reply_guidelines_en
+
+        return get_quick_reply_guidelines_en(is_comparing)
+    return get_quick_reply_guidelines(is_comparing)
+
+
+def get_generate_chat_title_and_quick_replies_system_prompt(
+    locale: Locale = DEFAULT_LOCALE,
+) -> PromptTemplate:
+    """Get the generate chat title and quick replies system prompt for the specified locale."""
+    if locale == "en":
+        from src.prompts_en import (
+            generate_chat_title_and_quick_replies_system_prompt_en,
+        )
+
+        return generate_chat_title_and_quick_replies_system_prompt_en
+    return generate_chat_title_and_quick_replies_system_prompt
+
+
+def get_generate_chat_title_and_quick_replies_user_prompt(
+    locale: Locale = DEFAULT_LOCALE,
+) -> PromptTemplate:
+    """Get the generate chat title and quick replies user prompt for the specified locale."""
+    if locale == "en":
+        from src.prompts_en import generate_chat_title_and_quick_replies_user_prompt_en
+
+        return generate_chat_title_and_quick_replies_user_prompt_en
+    return generate_chat_title_and_quick_replies_user_prompt
+
+
+def get_reranking_system_prompt_template(
+    locale: Locale = DEFAULT_LOCALE,
+) -> PromptTemplate:
+    """Get the reranking system prompt template for the specified locale."""
+    if locale == "en":
+        from src.prompts_en import reranking_system_prompt_template_en
+
+        return reranking_system_prompt_template_en
+    return reranking_system_prompt_template
+
+
+def get_reranking_user_prompt_template(
+    locale: Locale = DEFAULT_LOCALE,
+) -> PromptTemplate:
+    """Get the reranking user prompt template for the specified locale."""
+    if locale == "en":
+        from src.prompts_en import reranking_user_prompt_template_en
+
+        return reranking_user_prompt_template_en
+    return reranking_user_prompt_template
+
+
+def get_candidate_chat_answer_guidelines_for_locale(
+    candidate_name: str, is_comparing: bool = False, locale: Locale = DEFAULT_LOCALE
+) -> str:
+    """Get candidate chat answer guidelines for the specified locale."""
+    if locale == "en":
+        from src.prompts_en import get_candidate_chat_answer_guidelines_en
+
+        return get_candidate_chat_answer_guidelines_en(candidate_name, is_comparing)
+    return get_candidate_chat_answer_guidelines(candidate_name, is_comparing)
+
+
+def get_candidate_response_system_prompt_template(
+    locale: Locale = DEFAULT_LOCALE,
+) -> PromptTemplate:
+    """Get the candidate response system prompt template for the specified locale."""
+    if locale == "en":
+        from src.prompts_en import candidate_response_system_prompt_template_en
+
+        return candidate_response_system_prompt_template_en
+    return candidate_response_system_prompt_template
+
+
+def get_streaming_candidate_response_user_prompt_template(
+    locale: Locale = DEFAULT_LOCALE,
+) -> PromptTemplate:
+    """Get the streaming candidate response user prompt template for the specified locale."""
+    if locale == "en":
+        from src.prompts_en import streaming_candidate_response_user_prompt_template_en
+
+        return streaming_candidate_response_user_prompt_template_en
+    return streaming_candidate_response_user_prompt_template
+
+
+def get_global_combined_answer_guidelines_for_locale(
+    scope: str, municipality_name: str = "", locale: Locale = DEFAULT_LOCALE
+) -> str:
+    """Get global combined answer guidelines for the specified locale."""
+    if locale == "en":
+        from src.prompts_en import get_global_combined_answer_guidelines_en
+
+        return get_global_combined_answer_guidelines_en(scope, municipality_name)
+    return get_global_combined_answer_guidelines(scope, municipality_name)
+
+
+def get_global_combined_response_system_prompt_template(
+    locale: Locale = DEFAULT_LOCALE,
+) -> PromptTemplate:
+    """Get the global combined response system prompt template for the specified locale."""
+    if locale == "en":
+        from src.prompts_en import global_combined_response_system_prompt_template_en
+
+        return global_combined_response_system_prompt_template_en
+    return global_combined_response_system_prompt_template
+
+
+def get_streaming_combined_response_user_prompt_template(
+    locale: Locale = DEFAULT_LOCALE,
+) -> PromptTemplate:
+    """Get the streaming combined response user prompt template for the specified locale."""
+    if locale == "en":
+        from src.prompts_en import streaming_combined_response_user_prompt_template_en
+
+        return streaming_combined_response_user_prompt_template_en
+    return streaming_combined_response_user_prompt_template

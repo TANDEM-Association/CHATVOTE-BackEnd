@@ -85,6 +85,7 @@ from src.utils import (
     get_cors_allowed_origins,
     sanitize_references,
 )
+from src.i18n import get_text, Locale, normalize_locale
 
 MAX_RESPONSE_CHUNK_LENGTH = 10
 
@@ -103,7 +104,7 @@ sio = socketio.AsyncServer(
 
 
 @sio.event
-async def connect(sid: str, environ: dict):
+async def connect(sid: str, environ: dict, auth: Optional[dict] = None):
     logger.info(f"Client connected: {sid}")
 
 
@@ -125,7 +126,8 @@ async def disconnect(sid: str, reason: str):
 
 @sio.on("home")
 async def home(sid: str, body: dict):
-    await sio.emit("home_response", {"message": "Bienvenue sur l'API ChatVote"}, to=sid)
+    locale: Locale = normalize_locale(body.get("locale"))
+    await sio.emit("home_response", {"message": get_text("welcome", locale)}, to=sid)
 
 
 @sio.on("chat_session_init")
@@ -159,6 +161,7 @@ async def init_chat_session(sid: str, body: dict):
         is_cacheable=create_session_dto.is_cacheable,
         scope=create_session_dto.scope.value,
         municipality_code=create_session_dto.municipality_code,
+        locale=normalize_locale(create_session_dto.locale),
     )
 
     async with sio.session(sid) as session:
@@ -182,6 +185,7 @@ async def init_chat_session(sid: str, body: dict):
 @sio.on("chat_summary_request")
 async def chat_summary_request(sid: str, body: dict):
     logger.info(f"Client {sid} requested chat summary from session_id: {body}")
+    locale: Locale = normalize_locale(body.get("locale"))
     try:
         request_summary = RequestSummaryDto(**body)
         chat_history = request_summary.chat_history
@@ -207,7 +211,7 @@ async def chat_summary_request(sid: str, body: dict):
             f"Error generating chat summary for session {request_summary}: {e}"
         )
         response_dto = SummaryDto(
-            chat_summary="Un résumé devrait apparaître ici...",
+            chat_summary=get_text("chat.summary_placeholder", locale),
             status=Status(indicator=StatusIndicator.ERROR, message=str(e)),
         )
         await sio.emit("chat_summary_complete", response_dto.model_dump(), to=sid)
@@ -638,6 +642,7 @@ async def fetch_and_emit_response(
                 all_parties=all_available_parties,
                 chat_response_llm_size=group_chat_session.chat_response_llm_size,
                 use_premium_llms=use_premium_llms,
+                locale=group_chat_session.locale,
             )
         else:
             chunk_stream = await generate_streaming_chatbot_comparing_response(
@@ -647,6 +652,7 @@ async def fetch_and_emit_response(
                 parties_being_compared or [],
                 chat_response_llm_size=group_chat_session.chat_response_llm_size,
                 use_premium_llms=use_premium_llms,
+                locale=group_chat_session.locale,
             )
 
         chunk_index = 0
@@ -775,7 +781,9 @@ async def fetch_and_emit_response(
         response_complete_dto = PartyResponseCompleteDto(
             session_id=group_chat_session.session_id,
             party_id=responder.party_id,
-            complete_message="Je ne peux malheureusement pas répondre à cette question.",
+            complete_message=get_text(
+                "errors.cannot_answer", group_chat_session.locale
+            ),
             status=Status(
                 indicator=StatusIndicator.ERROR,
                 message=str(e),
@@ -789,7 +797,7 @@ async def fetch_and_emit_response(
         response_complete_dto = PartyResponseCompleteDto(
             session_id=group_chat_session.session_id,
             party_id=responder.party_id,
-            complete_message="Désolé, une erreur s'est produite. Veuillez réessayer plus tard.",
+            complete_message=get_text("errors.generic", group_chat_session.locale),
             status=Status(indicator=StatusIndicator.ERROR, message=str(e)),
         )
         await sio.emit(
@@ -1003,6 +1011,7 @@ async def handle_combined_answer_request(
             chat_response_llm_size=chat_session.chat_response_llm_size,
             use_premium_llms=chat_message_data.user_is_logged_in,
             is_single_party_focus=has_specific_parties,
+            locale=chat_session.locale,
         )
 
         # Stream the response
@@ -1101,7 +1110,7 @@ async def handle_combined_answer_request(
         response_complete_dto = PartyResponseCompleteDto(
             session_id=chat_session.session_id,
             party_id=responder_id,
-            complete_message="Désolé, une erreur s'est produite. Veuillez réessayer plus tard.",
+            complete_message=get_text("errors.generic", chat_session.locale),
             status=Status(indicator=StatusIndicator.ERROR, message=str(e)),
         )
         await sio.emit(
@@ -1114,10 +1123,12 @@ async def handle_combined_answer_request(
     try:
         chat_title_and_quick_replies = await generate_chat_title_and_chick_replies(
             chat_history_str=full_conversation_history_str,
-            chat_title=chat_session.title or "Discussion politique",
+            chat_title=chat_session.title
+            or get_text("chat.default_title", chat_session.locale),
             parties_in_chat=all_parties,  # All parties are potentially relevant
             chatvote_assistant_last_responded=True,  # ChatVote assistant responds for combined
             is_comparing=True,  # Always comparing when searching all parties
+            locale=chat_session.locale,
         )
     except Exception as e:
         logger.error(f"Error generating title and quick replies: {e}", exc_info=True)
@@ -1214,11 +1225,12 @@ async def chat_answer_request(sid: str, body: dict):
         logger.error(
             f"Error accessing chat session for client {sid}: {e}", exc_info=True
         )
+        locale: Locale = normalize_locale(chat_message_data.locale)
         chat_response_complete_dto = ChatResponseCompleteDto(
             session_id=chat_message_data.session_id,
             status=Status(
                 indicator=StatusIndicator.ERROR,
-                message="It seems like the chat session has not been started",
+                message=get_text("errors.session_not_started", locale),
             ),
         )
         await sio.emit(
@@ -1291,7 +1303,7 @@ async def chat_answer_request(sid: str, body: dict):
         party_response_complete_dto = PartyResponseCompleteDto(
             session_id=chat_session.session_id,
             party_id=ASSISTANT_ID,
-            complete_message="Je ne peux malheureusement pas répondre à cette question.",
+            complete_message=get_text("errors.cannot_answer", chat_session.locale),
             status=Status(indicator=StatusIndicator.SUCCESS, message="Success"),
         )
         await sio.emit(
@@ -1419,7 +1431,9 @@ async def chat_answer_request(sid: str, body: dict):
                 session_id=chat_message_data.session_id,
                 status=Status(
                     indicator=StatusIndicator.ERROR,
-                    message="Timeout while fetching the correct party documents",
+                    message=get_text(
+                        "errors.timeout_party_documents", chat_session.locale
+                    ),
                 ),
             )
             await sio.emit(
@@ -1460,7 +1474,7 @@ async def chat_answer_request(sid: str, body: dict):
             session_id=chat_message_data.session_id,
             status=Status(
                 indicator=StatusIndicator.ERROR,
-                message="Timeout while fetching party responses",
+                message=get_text("errors.timeout_party_responses", chat_session.locale),
             ),
         )
         await sio.emit(
@@ -1481,10 +1495,12 @@ async def chat_answer_request(sid: str, body: dict):
     try:
         chat_title_and_quick_replies = await generate_chat_title_and_chick_replies(
             chat_history_str=full_conversation_history_str,
-            chat_title=chat_session.title or "Aucun titre attribué",
+            chat_title=chat_session.title
+            or get_text("chat.no_title", chat_session.locale),
             parties_in_chat=parties_in_chat,
             chatvote_assistant_last_responded=party_id_list == [ASSISTANT_ID],
             is_comparing=is_comparing_question,
+            locale=chat_session.locale,
         )
     except openai.BadRequestError as e:
         logger.error(
@@ -1533,6 +1549,7 @@ async def chat_answer_request(sid: str, body: dict):
 
 @sio.on("voting_behavior_request")
 async def get_voting_behavior(sid: str, body: dict):
+    locale: Locale = normalize_locale(body.get("locale"))
     try:
         improved_rag_query = None
         request_data = VotingBehaviorRequestDto(**body)
@@ -1631,7 +1648,7 @@ async def get_voting_behavior(sid: str, body: dict):
         logger.error(f"Error processing voting behavior request: {e}", exc_info=True)
         error_response = VotingBehaviorDto(
             request_id=body.get("request_id"),
-            message="Je ne peux malheureusement pas fournir d'informations à ce sujet.",
+            message=get_text("voting_behavior.cannot_provide_info", locale),
             status=Status(indicator=StatusIndicator.ERROR, message=str(e)),
             votes=[],
             rag_query=improved_rag_query,
@@ -1640,7 +1657,7 @@ async def get_voting_behavior(sid: str, body: dict):
         logger.error(f"Error processing voting behavior request: {e}", exc_info=True)
         error_response = VotingBehaviorDto(
             request_id=body.get("request_id"),
-            message="Désolé, une erreur s'est produite. Veuillez réessayer plus tard.",
+            message=get_text("errors.generic", locale),
             status=Status(indicator=StatusIndicator.ERROR, message=str(e)),
             votes=[],
             rag_query=improved_rag_query,
