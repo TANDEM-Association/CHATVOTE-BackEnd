@@ -14,16 +14,17 @@ from openai.types.chat import ChatCompletion
 import xxhash
 
 from src.models.chat import Message, Role
-from src.models.party import WAHL_CHAT_PARTY, Party
+from src.models.party import Party
+from src.models.assistant import CHATVOTE_ASSISTANT
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-EXPECTED_API_NAME = "wahl-chat-api"
+EXPECTED_API_NAME = "chatvote-api"
 
 logger = logging.getLogger(__name__)
 
 
 def load_env():
-    """Load environment variables from the .env file if API_NAME is not already set to the expected value (used as an indicator of correctly provided environment variables)."""
+    """Charge les variables d'environnement depuis le fichier .env si API_NAME n'est pas déjà défini à la valeur attendue."""
     api_name = os.getenv("API_NAME")
 
     if api_name == EXPECTED_API_NAME:
@@ -31,25 +32,25 @@ def load_env():
 
     if api_name is not None:
         raise ValueError(
-            f"API_NAME environment variable is set to '{api_name}' but expected '{EXPECTED_API_NAME}'. "
-            "Please check your environment configuration."
+            f"La variable d'environnement API_NAME est définie à '{api_name}' mais '{EXPECTED_API_NAME}' est attendu. "
+            "Veuillez vérifier votre configuration."
         )
 
     env_path = BASE_DIR / ".env"
     if env_path.exists():
-        print(f"Loading environment variables from {env_path}...")
+        print(f"Chargement des variables d'environnement depuis {env_path}...")
         load_dotenv(env_path, override=True)
-        print(f"Loaded environment variables from {env_path}.")
+        print(f"Variables d'environnement chargées depuis {env_path}.")
 
     api_name = os.getenv("API_NAME")
     if not api_name:
         raise ValueError(
-            "API_NAME environment variable not set. Please set it in your environment or .env file."
+            "La variable d'environnement API_NAME n'est pas définie. Veuillez la définir dans votre environnement ou fichier .env."
         )
     if api_name != EXPECTED_API_NAME:
         raise ValueError(
-            f"API_NAME environment variable is set to '{api_name}' but expected '{EXPECTED_API_NAME}'. "
-            "Please check your environment configuration or .env file."
+            f"La variable d'environnement API_NAME est définie à '{api_name}' mais '{EXPECTED_API_NAME}' est attendu. "
+            "Veuillez vérifier votre configuration ou fichier .env."
         )
 
 
@@ -65,10 +66,10 @@ def get_cors_allowed_origins(env: Optional[str]) -> Union[str, list[str]]:
         return "*"
     else:
         return [
-            "https://wahl.chat",
-            "https://embed.wahl.chat",
-            "https://pre-prod.wahl.chat",
-            "https://dev.wahl.chat",
+            "https://chatvote.fr",
+            "https://embed.chatvote.fr",
+            "https://pre-prod.chatvote.fr",
+            "https://dev.chatvote.fr",
             "http://localhost:3000",
             "http://localhost:8080",
         ]
@@ -77,13 +78,13 @@ def get_cors_allowed_origins(env: Optional[str]) -> Union[str, list[str]]:
 def build_chat_history_string(
     chat_history: list[Message],
     parties: list[Party],
-    default_assistant_name=WAHL_CHAT_PARTY.name,
+    default_assistant_name=CHATVOTE_ASSISTANT.name,
 ) -> str:
     chat_history_string = ""
     for i, message in enumerate(chat_history):
         sender = ""
         if message.role == Role.USER:
-            sender = "Nutzer"
+            sender = "Utilisateur"
         else:
             sending_party = next(
                 (party for party in parties if party.party_id == message.party_id),
@@ -101,20 +102,20 @@ def build_document_string_for_context(
     doc_num: int, doc: Document, doc_num_label="ID"
 ) -> str:
     return f"""{doc_num_label}: {doc_num}
-- Dokumentname: {doc.metadata.get("document_name", "unbekannt")}
-- Veröffentlichungsdatum: {doc.metadata.get("document_publish_date", "unbekannt")}
-- Inhalt: "{doc.page_content}"
+- Nom du document: {doc.metadata.get("document_name", "inconnu")}
+- Date de publication: {doc.metadata.get("document_publish_date", "inconnue")}
+- Contenu: "{doc.page_content}"
 
 """
 
 
 def build_party_str(party: Party):
     return f"""ID: {party.party_id}
-- Abkürzung: {party.name}
-- Langform: {party.long_name}
-- Beschreibung: {party.description}
-- Spitzenkandidat*In für die Bundestagswahl 2025: {party.candidate}
-- Ist im aktuellen Bundestag vertreten: {party.is_already_in_parliament}
+- Nom court: {party.name}
+- Nom complet: {party.long_name}
+- Description: {party.description}
+- Tête de liste pour les élections municipales: {party.candidate}
+- Représenté au conseil municipal actuel: {party.is_already_in_parliament}
 """
 
 
@@ -161,13 +162,13 @@ def sanitize_references(text: str) -> str:
 
 
 if __name__ == "__main__":
-    text = """Die Grünen setzen sich für **gute Arbeit** und **faire Löhne** für Fabrikarbeiter ein. Sie wollen:
+    text = """Les Verts s'engagent pour un **travail de qualité** et des **salaires équitables** pour les ouvriers. Ils veulent :
 
-- **Faire Mindestlöhne**: Ein Mindestlohn von zunächst **15 Euro** im Jahr 2025, der auch für unter 18-Jährige gilt, um die Inflation auszugleichen. [id1]
-- **Stärkung der Mitbestimmung**: Die betriebliche Mitbestimmung soll gestärkt werden, um Beschäftigten mehr Einfluss auf ihre Arbeitsbedingungen zu geben. [<2>]
-- **Schutz vor Missbrauch**: Gegen Schein-Selbstständigkeit und den Missbrauch von Werkverträgen soll entschieden vorgegangen werden. [id2, id3]
+- **Salaires minimums équitables** : Un salaire minimum de **15 euros** dès 2025, applicable également aux moins de 18 ans, pour compenser l'inflation. [id1]
+- **Renforcement de la participation** : La participation des employés doit être renforcée pour leur donner plus d'influence sur leurs conditions de travail. [<2>]
+- **Protection contre les abus** : Une action décisive contre le faux travail indépendant et l'abus des contrats de sous-traitance. [id2, id3]
 
-Diese Maßnahmen zielen darauf ab, die Arbeitsbedingungen und die soziale Absicherung für Fabrikarbeiter zu verbessern.
+Ces mesures visent à améliorer les conditions de travail et la protection sociale des ouvriers.
 """
     sanitized_text = sanitize_references(text)
     print(sanitized_text)

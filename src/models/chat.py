@@ -1,9 +1,9 @@
-# SPDX-FileCopyrightText: 2025 2025 wahl.chat
+# SPDX-FileCopyrightText: 2025 chatvote
 #
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
 from enum import Enum
-from typing import List, Optional
+from typing import List, Literal, Optional
 from pydantic import BaseModel, Field
 from datetime import datetime
 
@@ -68,6 +68,18 @@ class GroupChatSession(BaseModel):
     )
     is_cacheable: bool = Field(
         description="Whether the chat history is cacheable or not", default=True
+    )
+    scope: str = Field(
+        description="The geographic scope of the chat session (national or local)",
+        default="national",
+    )
+    municipality_code: Optional[str] = Field(
+        description="The INSEE code of the municipality. Required when scope is 'local'.",
+        default=None,
+    )
+    locale: Literal["fr", "en"] = Field(
+        description="The locale for responses (fr or en). Defaults to French.",
+        default="fr",
     )
 
 

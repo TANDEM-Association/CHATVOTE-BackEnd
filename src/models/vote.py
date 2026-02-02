@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2025 2025 wahl.chat
+# SPDX-FileCopyrightText: 2025 chatvote
 #
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
@@ -56,7 +56,8 @@ class VotingResults(BaseModel):
 
 class Vote(BaseModel):
     """
-    A vote from the Bundestag on a specific topic.
+    A vote from the municipal council on a specific topic.
+    Un vote du conseil municipal sur un sujet spécifique.
     """
 
     id: str = Field(..., description="The ID of the vote")

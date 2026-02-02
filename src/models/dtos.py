@@ -1,10 +1,10 @@
-# SPDX-FileCopyrightText: 2025 2025 wahl.chat
+# SPDX-FileCopyrightText: 2025 chatvote
 #
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
 import enum
 from pydantic import BaseModel, Field, field_validator, ValidationError
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from src.models.general import LLMSize
 from src.models.vote import Vote
@@ -43,6 +43,15 @@ class StatusIndicator(str, enum.Enum):
     SUCCESS = "success"
 
 
+class ChatScope(str, enum.Enum):
+    """Defines the geographic scope of the chat session."""
+
+    NATIONAL = "national"  # Search in all manifestos + all candidate websites
+    LOCAL = (
+        "local"  # Search in manifestos + candidate websites filtered by municipality
+    )
+
+
 class Status(BaseModel):
     indicator: StatusIndicator = Field(..., description="The status of the event")
     message: str = Field(..., description="The message")
@@ -61,6 +70,18 @@ class InitChatSessionDto(BaseModel):
     )
     is_cacheable: bool = Field(
         description="Whether the chat history is cacheable or not", default=True
+    )
+    scope: ChatScope = Field(
+        description="The geographic scope of the chat session (national or local)",
+        default=ChatScope.NATIONAL,
+    )
+    municipality_code: Optional[str] = Field(
+        description="The INSEE code of the municipality. Required when scope is LOCAL.",
+        default=None,
+    )
+    locale: Literal["fr", "en"] = Field(
+        description="The locale for responses (fr or en). Defaults to French.",
+        default="fr",
     )
 
 
@@ -84,7 +105,35 @@ class ProConPerspectiveDto(BaseModel):
     request_id: Optional[str] = Field(
         ..., description="The ID of the Pro/Con assessment request if applicable"
     )
-    message: Message = Field(..., description="The Pro/Con assessment message")
+    message: Optional[Message] = Field(
+        default=None, description="The Pro/Con assessment message"
+    )
+    status: Status = Field(..., description="The status of the event")
+
+
+class CandidateProConPerspectiveRequestDto(BaseModel):
+    """Request DTO for generating a Pro/Con perspective for a candidate's response."""
+
+    request_id: str = Field(..., description="The ID of the Pro/Con assessment request")
+    candidate_id: str = Field(
+        ..., description="The ID of the candidate the user is chatting with"
+    )
+    last_user_message: str = Field(..., description="The last user message")
+    last_assistant_message: str = Field(..., description="The last assistant message")
+
+
+class CandidateProConPerspectiveDto(BaseModel):
+    """Response DTO for a candidate's Pro/Con perspective assessment."""
+
+    request_id: Optional[str] = Field(
+        ..., description="The ID of the Pro/Con assessment request if applicable"
+    )
+    candidate_id: Optional[str] = Field(
+        default=None, description="The ID of the candidate"
+    )
+    message: Optional[Message] = Field(
+        default=None, description="The Pro/Con assessment message"
+    )
     status: Status = Field(..., description="The status of the event")
 
 
@@ -167,6 +216,18 @@ class ChatUserMessageDto(BaseModel):
     user_is_logged_in: bool = Field(
         description="Whether the user is logged in or not", default=False
     )
+    scope: ChatScope = Field(
+        description="The geographic scope of the chat (national or local)",
+        default=ChatScope.NATIONAL,
+    )
+    municipality_code: Optional[str] = Field(
+        description="The INSEE code of the municipality. Required when scope is LOCAL.",
+        default=None,
+    )
+    locale: Literal["fr", "en"] = Field(
+        description="The locale for responses (fr or en). Defaults to French.",
+        default="fr",
+    )
 
     @field_validator("session_id")
     def session_id_must_not_be_empty(cls, value):
@@ -220,6 +281,21 @@ class PartyResponseChunkDto(BaseModel):
     )
 
 
+class StreamResetDto(BaseModel):
+    """Emitted when the LLM stream has to restart due to a fallback (e.g., rate limit).
+
+    When this event is received, the frontend should clear the current partial response
+    and prepare to receive a new complete response from the fallback LLM.
+    """
+
+    session_id: str = Field(..., description="The ID of the chat session")
+    party_id: Optional[str] = Field(..., description="The ID of the party/responder")
+    reason: str = Field(
+        ...,
+        description="The reason for the reset (e.g., 'Rate limit on google-gemini-2.0-flash')",
+    )
+
+
 class PartyResponseCompleteDto(BaseModel):
     session_id: str = Field(
         ..., description="The ID of the chat session to which the message belongs"
@@ -240,34 +316,6 @@ class ChatResponseCompleteDto(BaseModel):
     status: Status = Field(..., description="The status of the event")
 
 
-class WahlChatSwiperUserMessageDto(BaseModel):
-    session_id: str = Field(
-        ..., description="The ID of the chat session to which the message belongs"
-    )
-    user_message: str = Field(
-        ..., description="The user message to answer", max_length=500
-    )
-    current_political_question: str = Field(
-        ...,
-        description="The current wahl.chat Swiper question which the user is answering",
-    )
-
-    @field_validator("session_id")
-    def session_id_must_not_be_empty(cls, value):
-        if not value.strip():  # Check for empty or whitespace-only strings
-            raise ValidationError("Session ID cannot be empty or whitespace.")
-        return value
-
-
-class WahlChatSwiperResponseCompleteDto(BaseModel):
-    session_id: Optional[str] = Field(
-        ...,
-        description="The ID of the chat session to which the message belongs if applicable",
-    )
-    complete_message: Message = Field(..., description="The message including sources")
-    status: Status = Field(..., description="The status of the event")
-
-
 class QuickRepliesAndTitleDto(BaseModel):
     session_id: str = Field(
         ..., description="The ID of the chat session to which the message belongs"
@@ -283,25 +331,3 @@ class RequestSummaryDto(BaseModel):
 class SummaryDto(BaseModel):
     chat_summary: str = Field(..., description="The chat summary")
     status: Status = Field(..., description="The status of the event")
-
-
-class WahlChatSwiperAnswerRequestDto(BaseModel):
-    chat_history: List[Message] = Field(..., description="The chat history")
-    current_title: str = Field(..., description="The current chat title")
-    user_message: str = Field(
-        ..., description="The user message to answer", max_length=500
-    )
-    current_political_question: str = Field(
-        ...,
-        description="The current wahl.chat Swiper question which the user is answering",
-    )
-    chat_response_llm_size: LLMSize = Field(
-        description="The size of the LLM model to use for chat response generation",
-        default=LLMSize.LARGE,
-    )
-
-
-class WahlChatSwiperAnswerDto(BaseModel):
-    message: Message = Field(..., description="The message including sources")
-    title: str = Field(..., description="The new title of the chat session")
-    quick_replies: List[str] = Field(..., description="The quick replies for the user")

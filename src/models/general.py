@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2025 2025 wahl.chat
+# SPDX-FileCopyrightText: 2025 chatvote
 #
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
@@ -25,7 +25,7 @@ class LLM(BaseModel):
     )
     user_capacity_per_minute: int = Field(
         ...,
-        description="The number of concurrent active wahl.chat users that are estimated to be able use the model per minute.",
+        description="The number of concurrent active ChatVote users that are estimated to be able use the model per minute.",
     )
     is_at_rate_limit: bool = Field(
         ...,

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
 import argparse
+import asyncio
 import logging
 import os
 import json
@@ -10,23 +11,38 @@ import aiohttp_cors
 from aiohttp_pydantic.decorator import inject_params
 
 from src.chatbot_async import (
-    generate_swiper_assistant_response,
-    generate_swiper_assistant_title_and_chick_replies,
     get_improved_rag_query_voting_behavior,
 )
 from src.firebase_service import aget_party_by_id
-from src.models.chat import Message, Role
+from src.llms import reset_all_rate_limits
+from src.models.assistant import CHATVOTE_ASSISTANT
+from src.services.manifesto_indexer import index_all_parties, index_party_by_id
+from src.services.candidate_indexer import (
+    index_all_candidates,
+    index_candidate_by_id,
+)
+from src.vector_store_helper import (
+    qdrant_client,
+    PARTY_INDEX_NAME,
+    CANDIDATES_INDEX_NAME,
+    embed,
+)
+from src.services.firestore_listener import (
+    start_parties_listener,
+    start_candidates_listener,
+    is_listener_running,
+    is_candidates_listener_running,
+)
+from src.services.scheduler import create_scheduler
 from src.models.dtos import (
     ParliamentaryQuestionDto,
     ParliamentaryQuestionRequestDto,
     Status,
     StatusIndicator,
-    WahlChatSwiperAnswerDto,
-    WahlChatSwiperAnswerRequestDto,
 )
 from src.models.vote import Vote
 from src.vector_store_helper import identify_relevant_parliamentary_questions
-from src.utils import build_chat_history_string, get_cors_allowed_origins
+from src.utils import get_cors_allowed_origins
 from src.websocket_app import sio
 
 LOGGING_FORMAT = (
@@ -57,6 +73,331 @@ async def api_key_middleware(request, handler):
 async def health_check(request):
     """Kubernetes health check endpoint."""
     return web.json_response({"status": "ok"})
+
+
+@routes.get(f"{route_prefix}/assistant")
+async def get_assistant_info(request):
+    """Get ChatVote assistant information.
+
+    This returns the assistant's metadata (name, description, logo, etc.)
+    without needing to store it in Firestore.
+    """
+    return web.json_response(CHATVOTE_ASSISTANT.model_dump())
+
+
+@routes.post(f"{route_prefix}/admin/index-all-manifestos")
+async def admin_index_all_manifestos(request):
+    """
+    Admin endpoint to trigger indexation of all party manifestos.
+
+    This should be called once to index existing parties, or to re-index all.
+    """
+    logger.info("Admin triggered: indexing all party manifestos")
+
+    try:
+        results = await index_all_parties()
+        total = sum(results.values())
+
+        return web.json_response(
+            {
+                "status": "success",
+                "message": f"Indexed {total} chunks for {len(results)} parties",
+                "details": results,
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error indexing manifestos: {e}", exc_info=True)
+        return web.json_response(
+            {"status": "error", "message": str(e)},
+            status=500,
+        )
+
+
+@routes.post(route_prefix + "/admin/index-party-manifesto/{party_id}")
+async def admin_index_party_manifesto(request):
+    """Admin endpoint to trigger indexation of a specific party's manifesto."""
+    party_id = request.match_info["party_id"]
+    logger.info(f"Admin triggered: indexing manifesto for party {party_id}")
+
+    try:
+        count = await index_party_by_id(party_id)
+
+        if count > 0:
+            return web.json_response(
+                {
+                    "status": "success",
+                    "message": f"Indexed {count} chunks for party {party_id}",
+                }
+            )
+        else:
+            return web.json_response(
+                {
+                    "status": "warning",
+                    "message": f"No chunks indexed for party {party_id}. Check if manifesto URL exists.",
+                }
+            )
+    except Exception as e:
+        logger.error(f"Error indexing manifesto for {party_id}: {e}", exc_info=True)
+        return web.json_response(
+            {"status": "error", "message": str(e)},
+            status=500,
+        )
+
+
+@routes.post(f"{route_prefix}/admin/index-all-candidates")
+async def admin_index_all_candidates(request):
+    """
+    Admin endpoint to trigger indexation of all candidate websites.
+
+    This will scrape and index all candidates with a website_url.
+    """
+    logger.info("Admin triggered: indexing all candidate websites")
+
+    try:
+        results = await index_all_candidates()
+        total = sum(results.values())
+        successful = sum(1 for v in results.values() if v > 0)
+
+        return web.json_response(
+            {
+                "status": "success",
+                "message": f"Indexed {total} chunks for {successful}/{len(results)} candidates",
+                "details": results,
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error indexing candidate websites: {e}", exc_info=True)
+        return web.json_response(
+            {"status": "error", "message": str(e)},
+            status=500,
+        )
+
+
+@routes.post(route_prefix + "/admin/index-candidate-website/{candidate_id}")
+async def admin_index_candidate_website(request):
+    """Admin endpoint to trigger indexation of a specific candidate's website."""
+    candidate_id = request.match_info["candidate_id"]
+    logger.info(f"Admin triggered: indexing website for candidate {candidate_id}")
+
+    try:
+        count = await index_candidate_by_id(candidate_id)
+
+        if count > 0:
+            return web.json_response(
+                {
+                    "status": "success",
+                    "message": f"Indexed {count} chunks for candidate {candidate_id}",
+                }
+            )
+        else:
+            return web.json_response(
+                {
+                    "status": "warning",
+                    "message": f"No chunks indexed for candidate {candidate_id}. Check if website URL exists.",
+                }
+            )
+    except Exception as e:
+        logger.error(f"Error indexing website for {candidate_id}: {e}", exc_info=True)
+        return web.json_response(
+            {"status": "error", "message": str(e)},
+            status=500,
+        )
+
+
+@routes.get(f"{route_prefix}/admin/listener-status")
+async def admin_listener_status(request):
+    """Check if the Firestore listeners are running."""
+    return web.json_response(
+        {
+            "parties_listener_running": is_listener_running(),
+            "candidates_listener_running": is_candidates_listener_running(),
+        }
+    )
+
+
+@routes.post(f"{route_prefix}/admin/reset-rate-limit")
+async def admin_reset_rate_limit(request):
+    """Reset the LLM rate limit status (both in memory and Firestore)."""
+    logger.info("Admin triggered: resetting LLM rate limit status")
+    try:
+        await reset_all_rate_limits()
+        return web.json_response(
+            {
+                "status": "success",
+                "message": "LLM rate limit status reset (memory + Firestore)",
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error resetting rate limit status: {e}", exc_info=True)
+        return web.json_response(
+            {"status": "error", "message": str(e)},
+            status=500,
+        )
+
+
+@routes.get(f"{route_prefix}/admin/debug-qdrant")
+async def admin_debug_qdrant(request):
+    """Debug endpoint to check Qdrant collection status."""
+    try:
+        # Get collection info
+        collection_info = qdrant_client.get_collection(PARTY_INDEX_NAME)
+
+        # Get a sample of points
+        points = qdrant_client.scroll(
+            collection_name=PARTY_INDEX_NAME,
+            limit=5,
+            with_payload=True,
+            with_vectors=False,
+        )
+
+        sample_docs = []
+        for point in points[0]:
+            payload = point.payload or {}
+            sample_docs.append(
+                {
+                    "id": str(point.id),
+                    "metadata": payload.get("metadata", {}),
+                    "content_preview": (payload.get("page_content", "")[:200] + "...")
+                    if payload.get("page_content")
+                    else "No content",
+                }
+            )
+
+        return web.json_response(
+            {
+                "collection_name": PARTY_INDEX_NAME,
+                "points_count": collection_info.points_count,
+                "vectors_count": collection_info.vectors_count,
+                "sample_documents": sample_docs,
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error debugging Qdrant: {e}", exc_info=True)
+        return web.json_response(
+            {"status": "error", "message": str(e)},
+            status=500,
+        )
+
+
+@routes.get(f"{route_prefix}/admin/debug-candidates-qdrant")
+async def admin_debug_candidates_qdrant(request):
+    """Debug endpoint to check Qdrant candidates collection status."""
+    try:
+        # Check if collection exists
+        collections = qdrant_client.get_collections().collections
+        collection_names = [c.name for c in collections]
+
+        if CANDIDATES_INDEX_NAME not in collection_names:
+            return web.json_response(
+                {
+                    "status": "warning",
+                    "message": f"Collection {CANDIDATES_INDEX_NAME} does not exist yet",
+                    "available_collections": collection_names,
+                }
+            )
+
+        # Get collection info
+        collection_info = qdrant_client.get_collection(CANDIDATES_INDEX_NAME)
+
+        # Get a sample of points
+        points = qdrant_client.scroll(
+            collection_name=CANDIDATES_INDEX_NAME,
+            limit=10,
+            with_payload=True,
+            with_vectors=False,
+        )
+
+        sample_docs = []
+        for point in points[0]:
+            payload = point.payload or {}
+            metadata = payload.get("metadata", {})
+            sample_docs.append(
+                {
+                    "id": str(point.id),
+                    "candidate_name": metadata.get("candidate_name", "Unknown"),
+                    "candidate_id": metadata.get("candidate_id", "Unknown"),
+                    "municipality_code": metadata.get("municipality_code", ""),
+                    "url": metadata.get("url", ""),
+                    "content_preview": (payload.get("page_content", "")[:300] + "...")
+                    if payload.get("page_content")
+                    else "No content",
+                }
+            )
+
+        return web.json_response(
+            {
+                "collection_name": CANDIDATES_INDEX_NAME,
+                "points_count": collection_info.points_count,
+                "vectors_count": collection_info.vectors_count,
+                "sample_documents": sample_docs,
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error debugging candidates Qdrant: {e}", exc_info=True)
+        return web.json_response(
+            {"status": "error", "message": str(e)},
+            status=500,
+        )
+
+
+@routes.post(f"{route_prefix}/admin/test-rag-search")
+async def admin_test_rag_search(request):
+    """Test RAG search for a party."""
+    try:
+        data = await request.json()
+        party_id = data.get("party_id", "place-publique")
+        query = data.get("query", "résumé du programme")
+
+        from qdrant_client.models import Filter, FieldCondition, MatchValue
+
+        # Get query vector
+        query_vector = await embed.aembed_query(query)
+
+        # Search with filter
+        filter_condition = Filter(
+            must=[
+                FieldCondition(
+                    key="metadata.namespace", match=MatchValue(value=party_id)
+                )
+            ]
+        )
+
+        results = qdrant_client.search(
+            collection_name=PARTY_INDEX_NAME,
+            query_vector=("dense", query_vector),
+            limit=5,
+            with_payload=True,
+            query_filter=filter_condition,
+            score_threshold=0.3,
+        )
+
+        docs = []
+        for point in results:
+            payload = point.payload or {}
+            docs.append(
+                {
+                    "score": point.score,
+                    "metadata": payload.get("metadata", {}),
+                    "content_preview": (payload.get("page_content", "")[:300] + "...")
+                    if payload.get("page_content")
+                    else "No content",
+                }
+            )
+
+        return web.json_response(
+            {
+                "party_id": party_id,
+                "query": query,
+                "results_count": len(docs),
+                "documents": docs,
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error testing RAG search: {e}", exc_info=True)
+        return web.json_response(
+            {"status": "error", "message": str(e)},
+            status=500,
+        )
 
 
 @routes.post(f"{route_prefix}/get-parliamentary-question")
@@ -106,48 +447,6 @@ async def get_parliamentary_question(body: ParliamentaryQuestionRequestDto):
     return web.json_response(parliamentary_question_dto.model_dump())
 
 
-@routes.post(f"{route_prefix}/answer-wahl-chat-swiper-question")
-@inject_params
-async def answer_wahl_chat_swiper_question(body: WahlChatSwiperAnswerRequestDto):
-    logger.debug(f"Received request: {body}")
-
-    user_message = Message(
-        role=Role.USER,
-        content=body.user_message,
-    )
-
-    chat_history_str = build_chat_history_string(
-        body.chat_history, [], default_assistant_name="wahl.chat Swiper Assistent"
-    )
-
-    swiper_assistant_response = await generate_swiper_assistant_response(
-        current_political_question=body.current_political_question,
-        conversation_history=chat_history_str,
-        user_message=body.user_message,
-        chat_response_llm_size=body.chat_response_llm_size,
-    )
-
-    chat_history = body.chat_history
-    chat_history.append(user_message)
-    chat_history.append(swiper_assistant_response)
-
-    chat_history_str = build_chat_history_string(
-        chat_history, [], default_assistant_name="wahl.chat Swiper Assistent"
-    )
-
-    title_and_quick_replies = await generate_swiper_assistant_title_and_chick_replies(
-        chat_history_str, body.current_political_question
-    )
-
-    wahl_chat_swiper_answer_dto = WahlChatSwiperAnswerDto(
-        message=swiper_assistant_response,
-        title=title_and_quick_replies.chat_title,
-        quick_replies=title_and_quick_replies.quick_replies,
-    )
-
-    return web.json_response(wahl_chat_swiper_answer_dto.model_dump())
-
-
 app = web.Application(middlewares=[api_key_middleware])
 
 # Add routes to the app
@@ -184,6 +483,49 @@ for route in list(app.router.routes()):
     cors.add(route, cors_config)
 
 sio.attach(app)
+
+
+# Start Firestore listeners for automatic indexation
+async def on_startup(app):
+    """Called when the application starts."""
+    # Reset rate limit flag on startup
+    logger.info("Resetting LLM rate limit flags on startup...")
+    try:
+        await reset_all_rate_limits()
+        logger.info("LLM rate limit flags reset successfully")
+    except Exception as e:
+        logger.error(f"Failed to reset rate limit flags: {e}")
+
+    # Get the current event loop for thread-safe async execution
+    event_loop = asyncio.get_running_loop()
+
+    # Start Firestore listener for parties (manifesto indexation)
+    logger.info("Starting Firestore parties listener...")
+    try:
+        start_parties_listener(event_loop=event_loop)
+        logger.info("Firestore parties listener started successfully")
+    except Exception as e:
+        logger.error(f"Failed to start Firestore parties listener: {e}")
+
+    # Start Firestore listener for candidates (website indexation)
+    logger.info("Starting Firestore candidates listener...")
+    try:
+        start_candidates_listener(event_loop=event_loop)
+        logger.info("Firestore candidates listener started successfully")
+    except Exception as e:
+        logger.error(f"Failed to start Firestore candidates listener: {e}")
+
+    # Start the scheduler for periodic tasks
+    logger.info("Starting scheduler for periodic tasks...")
+    try:
+        scheduler = create_scheduler()
+        scheduler.start()
+        logger.info("Scheduler started successfully")
+    except Exception as e:
+        logger.error(f"Failed to start scheduler: {e}")
+
+
+app.on_startup.append(on_startup)
 
 
 # Instantiate the argument parser

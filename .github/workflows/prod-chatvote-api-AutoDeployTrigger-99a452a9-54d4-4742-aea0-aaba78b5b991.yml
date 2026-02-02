@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: 2025 2025 wahl.chat
+# SPDX-FileCopyrightText: 2025 2025 chatvote
 #
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
-name: Trigger auto deployment for prod-wahl-chat-api
+name: Trigger auto deployment for prod-chatvote-api
 
 # When this action will be executed
 on:
@@ -12,7 +12,7 @@ on:
   #     [ main ]
   #   paths:
   #   - '**'
-  #   - '.github/workflows/prod-wahl-chat-api-AutoDeployTrigger-99a452a9-54d4-4742-aea0-aaba78b5b991.yml'
+  #   - '.github/workflows/prod-chatvote-api-AutoDeployTrigger-99a452a9-54d4-4742-aea0-aaba78b5b991.yml'
 
   # Allow manual trigger
   workflow_dispatch:
@@ -28,13 +28,13 @@ jobs:
       - name: Create the firebase admin sdk json
         uses: jsdaniell/create-json@v1.2.3
         with:
-          name: "wahl-chat-firebase-adminsdk.json"
+          name: "chatvote-firebase-adminsdk.json"
           json: ${{ secrets.FIREBASE_ADMIN_SDK_JSON }}
 
       - name: Azure Login
         uses: azure/login@v1
         with:
-          creds: ${{ secrets.PRODWAHLCHATAPI_AZURE_CREDENTIALS }}
+          creds: ${{ secrets.PRODCHATVOTEAPI_AZURE_CREDENTIALS }}
 
       - name: Build and push container image to registry
         uses: azure/container-apps-deploy-action@v2
@@ -42,8 +42,8 @@ jobs:
           appSourcePath: ${{ github.workspace }}
           _dockerfilePathKey_: _dockerfilePath_
           registryUrl: caf0ba71a194acr.azurecr.io
-          registryUsername: ${{ secrets.PRODWAHLCHATAPI_REGISTRY_USERNAME }}
-          registryPassword: ${{ secrets.PRODWAHLCHATAPI_REGISTRY_PASSWORD }}
-          containerAppName: prod-wahl-chat-api
-          resourceGroup: wahl-chat
-          imageToBuild: caf0ba71a194acr.azurecr.io/prod-wahl-chat-api:${{ github.sha }}
+          registryUsername: ${{ secrets.PRODCHATVOTEAPI_REGISTRY_USERNAME }}
+          registryPassword: ${{ secrets.PRODCHATVOTEAPI_REGISTRY_PASSWORD }}
+          containerAppName: prod-chatvote-api
+          resourceGroup: chatvote
+          imageToBuild: caf0ba71a194acr.azurecr.io/prod-chatvote-api:${{ github.sha }}

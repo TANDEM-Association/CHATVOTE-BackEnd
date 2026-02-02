@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2025 2025 wahl.chat
+# SPDX-FileCopyrightText: 2025 chatvote
 #
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
@@ -16,6 +16,7 @@ build/
 develop-eggs/
 dist/
 downloads/
+scripts/node_modules/
 eggs/
 .eggs/
 lib/
@@ -134,7 +135,12 @@ venv/
 ENV/
 env.bak/
 venv.bak/
-wahl-chat-firebase-adminsdk-donoo-d3d80520ff.json
+chatvote-firebase-adminsdk*.json
+chat-vote-*-firebase-adminsdk*.json
+*firebase-adminsdk*.json
+
+# Generated data files (too large for git)
+firebase/firestore_data/dev/municipalities.json
 
 # Spyder project settings
 .spyderproject
